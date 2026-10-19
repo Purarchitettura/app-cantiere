@@ -288,11 +288,12 @@ const CONFIG = {
   ROOT_FOLDER_ID: '1m8DARnUxj6ewA83Ert7ncDj8JPa6Y4-A',       // ID della cartella Google Drive che fa da archivio
   REDIRECT_URI: '',         // vuoto = indirizzo della pagina; deve coincidere con quello registrato su Google Cloud
   ALLOWED_EMAILS: [],       // facoltativo: elenco email ammesse, es. ['geometrailariocorro@gmail.com']
+  CANTIERE_CREATORS: ['contact@purarchitettura.it', 'geometrailariocorro@gmail.com'],
   INTESTAZIONE_DEFAULT: 'Geom. Ilario Corrò',
   CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
 };
 const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
-const APP_VERSION = '2.0 operativa · 19/10/2026';
+const APP_VERSION = '2.1 permessi cantieri · 19/10/2026';
 
 /* =====================================================================
    REGOLE PER GLI AGGIORNAMENTI (da rispettare in ogni modifica futura)
@@ -319,6 +320,47 @@ const ROOT_ID = MODE === 'drive' ? CONFIG.ROOT_FOLDER_ID : 'root';
 const IN_ARTIFACT = !!(window.claude && typeof window.claude.use === 'function');
 const TMP = 'tmp~';
 let READONLY = false;
+
+// La creazione dei cantieri e la collaborazione nei cantieri sono permessi distinti.
+// Drive resta responsabile dei permessi reali sui file e sulle cartelle.
+const Access = {
+  canCreateCantiere() {
+    if (MODE === 'demo') return true;
+    const email = (Auth.user?.email || '').trim().toLowerCase();
+    return !!email && Auth.user?.readonly === false && CONFIG.CANTIERE_CREATORS.some(e => e.trim().toLowerCase() === email);
+  },
+  requireCantiereCreator() {
+    if (!this.canCreateCantiere()) throw new Error('Solo gli utenti abilitati possono creare nuovi cantieri.');
+  },
+  canWriteCantiere(cant) {
+    if (MODE === 'demo') return true;
+    if (cant.canAddChildren != null) return cant.canAddChildren === true;
+    if (String(cant.id).startsWith(TMP)) return this.canCreateCantiere();
+    // Compatibilità con la cache precedente: un Editor dell'archivio eredita la scrittura.
+    return Auth.user?.readonly === false;
+  },
+  async requireGroupWriter(parentId) {
+    if (MODE === 'demo') return;
+    const id = Store.resolve(parentId);
+    if (Store.isTemp(id)) { this.requireCantiereCreator(); return; }
+    let allowed = false;
+    try {
+      const folder = await Store.net(() => Drive.folderInfo(id));
+      allowed = folder?.capabilities?.canAddChildren === true;
+      // Conserva il permesso verificato per la creazione di gruppi senza rete.
+      const key = 'list:cantiere:' + ROOT_ID;
+      const items = (await IDB.get('kv', key)) || [];
+      for (const c of items) if (Store.same(c.id, id)) c.canAddChildren = allowed;
+      await IDB.put('kv', key, items);
+    } catch (e) {
+      if (!(e.offline || e.authNeeded)) throw e;
+      const items = (await Store.cachedList('cantiere', ROOT_ID)) || [];
+      const cant = items.find(c => Store.same(c.id, id));
+      allowed = !!cant && this.canWriteCantiere(cant);
+    }
+    if (!allowed) throw new Error('Per aggiungere gruppi foto serve il permesso Editor su questo cantiere. Chiedilo al responsabile.');
+  },
+};
 
 /* ---------- utilità ---------- */
 { const rc = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function (...k) { return rc.apply(this, k.filter(x => x != null && x !== false)); }; }
@@ -533,7 +575,7 @@ const Auth = {
 /* ---------- archivio Google Drive ---------- */
 const API = 'https://www.googleapis.com/drive/v3', UPL = 'https://www.googleapis.com/upload/drive/v3';
 const Drive = {
-  FIELDS: 'id,name,description,createdTime,modifiedTime,parents',
+  FIELDS: 'id,name,description,createdTime,modifiedTime,parents,capabilities(canAddChildren)',
   async f(url, opts = {}) {
     const tok = await Auth.token(); let r;
     try { r = await fetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + tok } }); }
@@ -546,7 +588,7 @@ const Drive = {
     }
     return r;
   },
-  toEnt(f, kind, parentId) { let data = {}; try { data = JSON.parse(f.description || '{}'); } catch {} return { id: f.id, kind, parentId: parentId || (f.parents && f.parents[0]), data, created: f.createdTime, modified: f.modifiedTime }; },
+  toEnt(f, kind, parentId) { let data = {}; try { data = JSON.parse(f.description || '{}'); } catch {} return { id: f.id, kind, parentId: parentId || (f.parents && f.parents[0]), data, created: f.createdTime, modified: f.modifiedTime, canAddChildren: f.capabilities?.canAddChildren }; },
   nameFor(kind, d) {
     switch (kind) {
       case 'cantiere': return d.nome || 'Cantiere';
@@ -567,6 +609,7 @@ const Drive = {
     return out;
   },
   async create(kind, parentId, data, blob) {
+    if (kind === 'cantiere') Access.requireCantiereCreator();
     const meta = { name: this.nameFor(kind, data), parents: [parentId], description: JSON.stringify(data), appProperties: { fc: kind } };
     const fields = '&fields=' + encodeURIComponent(this.FIELDS);
     let r;
@@ -589,10 +632,11 @@ const Drive = {
   async remove(kind, id) { await this.f(`${API}/files/${id}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) }); },
   async getBlob(id) { return (await this.f(`${API}/files/${id}?alt=media&supportsAllDrives=true`)).blob(); },
   async whoami() { const j = await (await this.f(`${API}/about?fields=user(displayName,emailAddress)`)).json(); return { name: j.user?.displayName || '', email: (j.user?.emailAddress || '').toLowerCase() }; },
-  async rootInfo() {
-    try { return await (await this.f(`${API}/files/${CONFIG.ROOT_FOLDER_ID}?supportsAllDrives=true&fields=id,name,capabilities(canAddChildren)`)).json(); }
+  async folderInfo(id) {
+    try { return await (await this.f(`${API}/files/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id,name,capabilities(canAddChildren)`)).json(); }
     catch (e) { if (e.status === 403 || e.status === 404) return null; throw e; }
   },
+  async rootInfo() { return this.folderInfo(CONFIG.ROOT_FOLDER_ID); },
 };
 
 /* ---------- archivio di prova (tutto sul dispositivo) ---------- */
@@ -679,6 +723,8 @@ const Store = {
   },
   async findCreateOp(id) { return (await this.ops()).find(o => o.type === 'create' && o.tempId === id); },
   async create(kind, parentId, data, blob) {
+    if (kind === 'cantiere') Access.requireCantiereCreator();
+    if (kind === 'gruppo') await Access.requireGroupWriter(parentId);
     const tempId = TMP + uid();
     if (kind === 'foto' && blob) {
       if (!await IDB.durable()) throw new Error('Archivio offline non disponibile: impossibile garantire il salvataggio della foto.');
@@ -877,7 +923,7 @@ async function nextNumFor(cant) {
 // Foto create prima della numerazione: ricevono una volta sola il numero del cantiere, in ordine di scatto,
 // dopo i numeri già usati. Si AGGIUNGE solo il campo "num": nessun altro dato viene toccato (regola 2).
 async function assignMissingNums(cant) {
-  if (MODE === 'drive' && (READONLY || !navigator.onLine)) return 0;
+  if (MODE === 'drive' && (!Access.canWriteCantiere(cant) || !navigator.onLine)) return 0;
   const key = 'numchk:' + Store.resolve(cant.id);
   const last = +(await IDB.get('kv', key) || 0);
   if (Date.now() - last < 10 * 60000) return 0;
@@ -1593,9 +1639,10 @@ function cantiereForm(d = {}) {
   return { body, read, f };
 }
 function HomeView() {
+  const READONLY = !Access.canCreateCantiere();
   const list = h('div', { class: 'card list' }, h('div', { class: 'spin' }));
   const demo = MODE === 'demo' ? h('div', { class: 'notice' }, h('strong', null, 'Modalità prova. '), 'I dati restano su questo dispositivo. Il cantiere di esempio serve solo a vedere come funziona: puoi eliminarlo.') : null;
-  const ro = READONLY ? h('div', { class: 'notice' }, h('strong', null, 'Sola consultazione. '), 'Il tuo account può vedere l\'archivio ma non aggiungere foto.') : null;
+  const ro = READONLY ? h('div', { class: 'notice' }, 'La creazione dei cantieri è riservata agli utenti abilitati. Nei cantieri in cui sei Editor puoi aggiungere gruppi e foto.') : null;
   const el = h('div', null,
     AppBar({ title: 'Cantieri', sub: MODE === 'drive' ? (Auth.user?.email || '') : 'Archivio foto', back: false, actions: [iconBtn('search', 'Cerca', () => Nav.push(() => SearchView())), iconBtn('gear', 'Impostazioni', () => Nav.push(() => SettingsView()))] }),
     h('main', { class: 'main gut' + (READONLY ? ' no-bar' : '') }, demo, ro, list),
@@ -1612,6 +1659,7 @@ function HomeView() {
     try { render(await Store.list('cantiere', ROOT_ID)); } catch (e) { if (!c) showLoadError(list, e); else toast(e.message, 'err'); }
   }
   async function add() {
+    if (!Access.canCreateCantiere()) return toast('Solo gli utenti abilitati possono creare nuovi cantieri.', 'err');
     const fm = cantiereForm();
     const ok = await modal({ title: 'Nuovo cantiere', body: fm.body, actions: [{ label: 'Annulla', value: false }, { label: 'Crea cantiere', kind: 'primary', onClick: () => { if (!fm.f.nome.value.trim()) { fm.f.nome.focus(); toast('Indica il nome del cantiere', 'err'); return false; } return true; } }] });
     if (!ok) return;
@@ -1622,6 +1670,7 @@ function HomeView() {
 }
 
 function CantiereView(cant, initialTab) {
+  const READONLY = !Access.canWriteCantiere(cant);
   let tab = initialTab || 'gruppi', gruppi = null, piante = null;
   const titleEl = h('h1', { class: 'bar-title' }, cant.data.nome);
   const bar = AppBar({ title: '', sub: cant.data.indirizzo || '', actions: [iconBtn('more', 'Altre azioni', more)] });
@@ -1659,11 +1708,14 @@ function CantiereView(cant, initialTab) {
     catch (e) { if (!gruppi) showLoadError(body, e); else toast(e.message, 'err'); }
   }
   async function addGruppo() {
+    if (READONLY) return toast('Per aggiungere gruppi foto serve il permesso Editor su questo cantiere.', 'err');
     const t = h('input', { id: 'g-tit', maxlength: 150, placeholder: 'Es. Sopralluogo impianti, Getto solaio…' }), d = h('input', { id: 'g-data', type: 'date', value: todayISO() }), ds = h('textarea', { id: 'g-desc', maxlength: 2000, placeholder: 'Cosa documentano queste foto' });
     const ok = await modal({ title: 'Nuovo gruppo di foto', body: h('div', { class: 'form' }, field('Titolo *', t), field('Data', d), field('Descrizione', ds)), actions: [{ label: 'Annulla', value: false }, { label: 'Crea gruppo', kind: 'primary', onClick: () => { if (!t.value.trim()) { t.focus(); toast('Indica un titolo', 'err'); return false; } return true; } }] });
     if (!ok) return;
-    const g = await Store.create('gruppo', cant.id, { titolo: t.value.trim(), data: d.value || todayISO(), descrizione: ds.value.trim() });
-    Nav.push(() => GruppoView(cant, g));
+    try {
+      const g = await Store.create('gruppo', cant.id, { titolo: t.value.trim(), data: d.value || todayISO(), descrizione: ds.value.trim() });
+      Nav.push(() => GruppoView(cant, g));
+    } catch (e) { toast(e.message, 'err'); }
   }
   async function addPianta() {
     const files = await pickFiles({ accept: 'image/*,application/pdf' }); if (!files.length) return;
@@ -1713,6 +1765,7 @@ function CantiereView(cant, initialTab) {
 
 /* ---------- Gruppo di foto ---------- */
 function GruppoView(cant, grp) {
+  const READONLY = !Access.canWriteCantiere(cant);
   let mode = 'grid', fotos = null, piante = [], planSel = null, pv = null;
   const titleEl = h('h1', { class: 'bar-title' }, grp.data.titolo);
   const bar = AppBar({ title: '', sub: `${cant.data.nome} · ${fmtDay(grp.data.data)}`, actions: [iconBtn('more', 'Altre azioni', more)] });
@@ -1823,6 +1876,7 @@ function GruppoView(cant, grp) {
 
 /* ---------- Scatto: punto sulla planimetria + foto ---------- */
 function ScattoView(cant, grp) {
+  if (!Access.canWriteCantiere(cant)) { toast('Non hai il permesso di aggiungere foto a questo cantiere.', 'err'); return GruppoView(cant, grp); }
   let piante = null, sel = null, point = null, dirMode = false, pv = null, numP = null; const shots = [];
   const lastKey = 'fc_lastp_' + Store.resolve(cant.id);
   const chips = h('div', { class: 'chips' });
@@ -1969,6 +2023,7 @@ function ScattoView(cant, grp) {
 
 /* ---------- Foto singola ---------- */
 function FotoView(cant, grp, fotos, idx) {
+  const READONLY = !Access.canWriteCantiere(cant);
   let f = fotos[idx], pv = null, editPoint = null, piante = [];
   const img = h('img', { alt: '' });
   const wrap = h('div', { class: 'photo-wrap' }, img);
@@ -2474,3 +2529,4 @@ boot().catch(e => { console.error(e); $('#app').replaceChildren(h('div', { class
 </script>
 </body>
 </html>
+

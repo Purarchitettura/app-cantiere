@@ -24,14 +24,39 @@ App web installabile su iPhone e Android: si apre dal browser e si aggiunge alla
 
 ## Chi può usarla
 
-L'accesso dipende **solo dalla condivisione della cartella archivio** su Google Drive:
+L'accesso ai dati dipende dalle condivisioni su Google Drive. La creazione dei cantieri nell'app è riservata agli account abilitati qui sotto.
+
+### Creazione cantieri e collaborazione (versione 2.1)
+
+Nell'app possono creare nuovi cantieri esclusivamente questi account:
+
+- `contact@purarchitettura.it`
+- `geometrailariocorro@gmail.com`
+
+L'elenco è in `CONFIG.CANTIERE_CREATORS` di `index.html`. Per cambiarlo serve un aggiornamento del codice; non è presente una schermata di gestione utenti. Anche gli utenti abilitati devono avere il permesso di aggiungere cartelle nell'archivio su Drive.
+
+Gli altri utenti possono aggiungere gruppi foto e foto nei cantieri di cui sono **Editor**. L'app legge il permesso del singolo cantiere: essere Visualizzatore dell'archivio non impedisce di lavorare in un cantiere condiviso separatamente come Editor. Un accesso Visualizzatore al solo cantiere consente la consultazione, senza caricamenti.
+
+Per applicare il vincolo anche direttamente su Drive, configura le condivisioni così:
+
+1. I due creatori sono Proprietario/Editor della cartella «Foto Cantiere - Archivio».
+2. Gli altri utenti sono Visualizzatori della cartella archivio.
+3. Condividi ciascuna cartella cantiere come Editor con tutti gli utenti che devono aggiungervi gruppi e foto.
+
+La cartella archivio condivisa in lettura rende visibili i cantieri al suo interno: questo schema non isola la visibilità dei cantieri fra collaboratori. Non usarlo per cantieri che devono restare riservati a gruppi separati.
+
+**Limite di sicurezza:** il codice statico dell'app controlla l'elenco dei creatori nell'interfaccia, prima di accodare un nuovo cantiere e prima dell'invio a Drive. Non sostituisce le autorizzazioni di Google Drive: un utente che rimane Editor dell'archivio può creare cartelle direttamente su Drive o tramite API. La pubblicazione del codice non cambia automaticamente alcuna condivisione esistente. Per negare la creazione anche al di fuori dell'app occorre la configurazione Drive sopra, oppure un servizio backend che autorizzi le operazioni.
+
+Offline si usano i permessi già verificati e presenti in cache; Drive ricontrolla i permessi effettivi durante la sincronizzazione. Una revoca può quindi lasciare operazioni in coda, senza cancellarne i dati. L'aggiornamento non elimina né migra cantieri, gruppi, foto o code esistenti.
+
+### Permessi Google Drive di base
 
 - condivisa come **Editor**: la persona può consultare, scattare e caricare;
 - condivisa come **Visualizzatore**: la persona può solo consultare;
 - non condivisa: l'app rifiuta l'accesso, anche se la persona ha un account Google.
 
-**Aggiungere un utente**: nel Drive di contact@purarchitettura.it condividi la cartella «Foto Cantiere - Archivio» con la sua email. Non serve altro.
-**Togliere un utente**: rimuovi la condivisione. Le foto che ha già caricato restano nell'archivio.
+**Aggiungere un collaboratore**: nel Drive di contact@purarchitettura.it condividi la cartella «Foto Cantiere - Archivio» come Visualizzatore e i singoli cantieri su cui deve lavorare come Editor.
+**Togliere un utente**: rimuovi sia la condivisione dell'archivio sia quelle assegnate ai singoli cantieri. Le foto che ha già caricato restano nell'archivio.
 
 Ogni utente deve avere un account Google (Gmail o Google Workspace). Al primo accesso Google mostra l'avviso «Google non ha verificato questa app»: si prosegue con *Avanzate* → *Vai a App Cantiere*. L'avviso compare perché l'app è privata e non è stata sottoposta alla verifica di Google, che per un uso interno non serve. Google consente a un'app non verificata al massimo 100 utenti nuovi in tutto.
 
@@ -115,3 +140,4 @@ Ricarica il file su GitHub. Finché `CLIENT_ID` e `ROOT_FOLDER_ID` sono vuoti, l
 - **Eliminazioni**: le cartelle e le foto eliminate finiscono nel cestino di Google Drive. Se Drive non permette a un collaboratore di eliminare un file caricato da altri, l'app lo segnala nella coda e l'operazione si può annullare.
 - **Qualità delle foto**: lo standard è 2048 px sul lato lungo, modificabile in *Impostazioni*. L'app ricomprime le foto per risparmiare spazio su Drive e velocizzare i caricamenti.
 - **Costi**: GitHub Pages, Google Cloud (per questo uso) e lo spazio Drive del piano gratuito non hanno costi. Lo spazio occupato dalle foto conta sulla quota Drive di chi le carica.
+
