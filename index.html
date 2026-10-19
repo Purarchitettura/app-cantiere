@@ -262,6 +262,10 @@ mark { background: color-mix(in srgb, var(--signal) 45%, transparent); color: in
 </style>
 
 <style>
+.fc-camera-overlay { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.9); display:flex; align-items:center; justify-content:center; padding:12px; }
+.fc-camera-panel { width:min(100%,600px); display:grid; gap:12px; padding:12px; border-radius:16px; background:var(--surface,#fff); color:var(--text,#111); }
+.fc-camera-panel video { object-fit:contain; }
+@media (max-width:600px) { .fc-camera-panel { border-radius:10px; } .fc-camera-panel .btn.big { min-height:65px; } }
 .shot-sync-status { display:block; position:absolute; bottom:0; left:0; right:0; font-size:10px;
   line-height:1.3; text-align:center; padding:4px 2px; color:#fff; background:rgba(0,0,0,.78); }
 .shot-sync-status.err { background:#982e32; cursor:pointer; }
@@ -612,7 +616,7 @@ const Store = {
     this.idmap = (await IDB.get('kv', 'idmap')) || {};
     await this.refreshStatus();
     addEventListener('online', () => this.kick());
-    setInterval(() => { if (this.status.pending && !this.status.error) this.kick(); }, 20000);
+    setInterval(() => { if (this.status.pending) this.kick(); }, 20000);
     this.kick();
   },
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
@@ -679,6 +683,9 @@ const Store = {
           throw new Error('Spazio sul dispositivo insufficiente. Sincronizza le foto o libera memoria.');
       }
     }
+    if (blob && navigator.storage?.persist) {
+      try { await navigator.storage.persist(); } catch {}
+    }
     if (blob) await IDB.put('blobs', 'q:' + tempId, blob);
     await this.enqueue({ type: 'create', kind, parentId, tempId, data, hasBlob: !!blob });
     return { id: tempId, kind, parentId, data, created: new Date().toISOString(), pending: true };
@@ -733,7 +740,12 @@ const Store = {
   },
   async process() {
     for (const op of await this.ops()) {
-      if (op.error) return;
+      if (op.error && (!op.retryAfter || Date.now() < op.retryAfter)) continue;
+      // Mantiene l'ordine delle operazioni sullo stesso elemento senza
+      // bloccare upload indipendenti per un errore non correlato.
+      const previous = (await this.ops()).filter(o => o.key < op.key &&
+        (o.tempId && o.tempId === op.id || o.id && o.id === op.id));
+      if (previous.length) continue;
       try {
         await this.net(() => this.runOp(op));
         await IDB.del('queue', op.key);
@@ -742,7 +754,11 @@ const Store = {
       } catch (e) {
         if (e.offline || e.authNeeded) { this.noteNet(e); return; }
         console.error(e);
-        op.error = e.message || String(e); await IDB.put('queue', op.key, op); return;
+        op.error = e.message || String(e);
+        op.attempts = (op.attempts || 0) + 1;
+        op.retryAfter = Date.now() + Math.min(15 * 60000, 10000 * Math.pow(2, Math.min(op.attempts - 1, 7)));
+        await IDB.put('queue', op.key, op); await this.refreshStatus(); this.emit();
+        continue;
       }
     }
   },
@@ -783,7 +799,7 @@ const Store = {
       if (k.startsWith(`list:${kind}:`) && Array.isArray(v) && v.some(i => i.id === id)) await IDB.put('kv', k, fn(v));
     }
   },
-  async retry(op) { delete op.error; await IDB.put('queue', op.key, op); await this.refreshStatus(); this.emit(); this.kick(); },
+  async retry(op) { delete op.error; delete op.retryAfter; await IDB.put('queue', op.key, op); await this.refreshStatus(); this.emit(); this.kick(); },
   async discard(op) { await IDB.del('queue', op.key); if (op.tempId) await IDB.del('blobs', 'q:' + op.tempId); await this.refreshStatus(); this.emit(); this.kick(); },
   async refreshStatus() {
     const ops = await this.ops();
@@ -1815,11 +1831,12 @@ function ScattoView(cant, grp) {
   const strip = h('div', { class: 'strip' });
   const camBtn = h('button', { class: 'btn primary big grow', type: 'button', onclick: () => take(true) }, icon('camera'), 'Scatta / prossimo scatto');
   const galBtn = h('button', { class: 'btn big', type: 'button', onclick: () => take(false) }, icon('image'), 'Galleria');
+  const liveBtn = h('button', { class: 'btn small', type: 'button', onclick: openLiveCamera }, icon('camera'), 'Fotocamera continua');
   const el = h('div', null,
     AppBar({ title: 'Punto di ripresa', sub: grp.data.titolo }),
     h('main', { class: 'main gut' }, chips, planBox, hint, h('div', { class: 'btn-row' }, dirBtn, clrBtn, newBtn),
       field('Nota per le prossime foto (facoltativa)', nota, 'Resta valida finché non la cambi; ogni foto si può correggere dopo.'),
-      stripLbl, strip),
+      h('div', { class: 'btn-row' }, liveBtn), stripLbl, strip),
     actionBar(galBtn, camBtn));
   function paint() {
     const hasPlan = !!sel;
@@ -1855,6 +1872,9 @@ function ScattoView(cant, grp) {
     if (sel && !point) { toast('Prima tocca la planimetria nel punto in cui ti trovi', 'err'); planBox.scrollIntoView({ behavior: 'smooth', block: 'center' }); hint.classList.remove('flash'); void hint.offsetWidth; hint.classList.add('flash'); return; }
     const files = await pickFiles({ accept: 'image/*', capture: camera ? 'environment' : null, multiple: !camera });
     if (!files.length) return;
+    await saveFiles(files, camera);
+  }
+  async function saveFiles(files, camera) {
     const st = Settings.get(); const b = files.length > 1 ? busy('Salvataggio foto…') : null;
     try {
       if (!numP) numP = nextNumFor(cant);
@@ -1877,6 +1897,34 @@ function ScattoView(cant, grp) {
       b?.close(); toast(files.length > 1 ? `${files.length} foto salvate sul dispositivo` : 'Foto salvata sul dispositivo');
       await updateShotStatuses(); paint();
     } catch (e) { b?.close(); toast('Foto non salvata: ' + e.message, 'err'); }
+  }
+  async function openLiveCamera() {
+    if (sel && !point) { toast('Seleziona prima il punto sulla planimetria', 'err'); return; }
+    if (!navigator.mediaDevices?.getUserMedia) { await take(true); return; }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); }
+    catch { toast('Fotocamera interna non disponibile: uso la fotocamera del telefono'); await take(true); return; }
+    const video = h('video', { autoplay: true, playsinline: true, muted: true, style: 'width:100%;max-height:65vh;background:#111;border-radius:12px' });
+    video.srcObject = stream;
+    const overlay = h('div', { class: 'fc-camera-overlay' });
+    const count = h('span', null, 'Punto e direzione mantenuti');
+    const stop = () => { stream.getTracks().forEach(t => t.stop()); overlay.remove(); };
+    const shutter = h('button', { class: 'btn primary big', type: 'button' }, icon('camera'), 'Scatta');
+    shutter.onclick = async () => {
+      if (!video.videoWidth) return;
+      shutter.disabled = true;
+      try {
+        const c = document.createElement('canvas'); c.width = video.videoWidth; c.height = video.videoHeight;
+        c.getContext('2d').drawImage(video, 0, 0);
+        const b = await canvasToBlob(c, 'image/jpeg', .9);
+        await saveFiles([new File([b], 'scatto-' + Date.now() + '.jpg', { type: 'image/jpeg' })], true);
+        count.textContent = shots.length + ' foto acquisite · puoi continuare';
+      } finally { shutter.disabled = false; }
+    };
+    overlay.append(h('div', { class: 'fc-camera-panel' }, h('div', { class: 'btn-row' }, count,
+      h('button', { class: 'btn small', type: 'button', onclick: stop }, 'Chiudi')), video, shutter));
+    document.body.append(overlay);
+    video.play().catch(() => {});
   }
   let unsubscribeSync = null;
   async function updateShotStatuses() {
