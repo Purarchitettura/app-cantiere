@@ -262,6 +262,15 @@ mark { background: color-mix(in srgb, var(--signal) 45%, transparent); color: in
 </style>
 
 <style>
+.fc-filters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:12px 0; }
+.fc-filters input,.fc-filters select,.fc-compare-controls select { width:100%; min-width:0; min-height:42px; border:1px solid var(--line,#ccc); border-radius:8px; padding:8px; background:var(--surface,#fff); color:var(--text,#111); }
+.fc-compare { margin:16px 0 36px; }.fc-compare-controls,.fc-compare-images { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:10px 0; }
+.fc-compare-images img { width:100%; aspect-ratio:4/3; object-fit:contain; background:#222; border-radius:8px; }
+@media(max-width:480px){.fc-filters {grid-template-columns:1fr}.fc-compare-controls{grid-template-columns:1fr}}
+.fc-camera-overlay { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.9); display:flex; align-items:center; justify-content:center; padding:12px; }
+.fc-camera-panel { width:min(100%,600px); display:grid; gap:12px; padding:12px; border-radius:16px; background:var(--surface,#fff); color:var(--text,#111); }
+.fc-camera-panel video { object-fit:contain; }
+@media (max-width:600px) { .fc-camera-panel { border-radius:10px; } .fc-camera-panel .btn.big { min-height:65px; } }
 .shot-sync-status { display:block; position:absolute; bottom:0; left:0; right:0; font-size:10px;
   line-height:1.3; text-align:center; padding:4px 2px; color:#fff; background:rgba(0,0,0,.78); }
 .shot-sync-status.err { background:#982e32; cursor:pointer; }
@@ -612,7 +621,7 @@ const Store = {
     this.idmap = (await IDB.get('kv', 'idmap')) || {};
     await this.refreshStatus();
     addEventListener('online', () => this.kick());
-    setInterval(() => { if (this.status.pending && !this.status.error) this.kick(); }, 20000);
+    setInterval(() => { if (this.status.pending) this.kick(); }, 20000);
     this.kick();
   },
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
@@ -679,6 +688,9 @@ const Store = {
           throw new Error('Spazio sul dispositivo insufficiente. Sincronizza le foto o libera memoria.');
       }
     }
+    if (blob && navigator.storage?.persist) {
+      try { await navigator.storage.persist(); } catch {}
+    }
     if (blob) await IDB.put('blobs', 'q:' + tempId, blob);
     await this.enqueue({ type: 'create', kind, parentId, tempId, data, hasBlob: !!blob });
     return { id: tempId, kind, parentId, data, created: new Date().toISOString(), pending: true };
@@ -733,7 +745,12 @@ const Store = {
   },
   async process() {
     for (const op of await this.ops()) {
-      if (op.error) return;
+      if (op.error && (!op.retryAfter || Date.now() < op.retryAfter)) continue;
+      // Mantiene l'ordine delle operazioni sullo stesso elemento senza
+      // bloccare upload indipendenti per un errore non correlato.
+      const previous = (await this.ops()).filter(o => o.key < op.key &&
+        (o.tempId && o.tempId === op.id || o.id && o.id === op.id));
+      if (previous.length) continue;
       try {
         await this.net(() => this.runOp(op));
         await IDB.del('queue', op.key);
@@ -742,7 +759,11 @@ const Store = {
       } catch (e) {
         if (e.offline || e.authNeeded) { this.noteNet(e); return; }
         console.error(e);
-        op.error = e.message || String(e); await IDB.put('queue', op.key, op); return;
+        op.error = e.message || String(e);
+        op.attempts = (op.attempts || 0) + 1;
+        op.retryAfter = Date.now() + Math.min(15 * 60000, 10000 * Math.pow(2, Math.min(op.attempts - 1, 7)));
+        await IDB.put('queue', op.key, op); await this.refreshStatus(); this.emit();
+        continue;
       }
     }
   },
@@ -783,7 +804,7 @@ const Store = {
       if (k.startsWith(`list:${kind}:`) && Array.isArray(v) && v.some(i => i.id === id)) await IDB.put('kv', k, fn(v));
     }
   },
-  async retry(op) { delete op.error; await IDB.put('queue', op.key, op); await this.refreshStatus(); this.emit(); this.kick(); },
+  async retry(op) { delete op.error; delete op.retryAfter; await IDB.put('queue', op.key, op); await this.refreshStatus(); this.emit(); this.kick(); },
   async discard(op) { await IDB.del('queue', op.key); if (op.tempId) await IDB.del('blobs', 'q:' + op.tempId); await this.refreshStatus(); this.emit(); this.kick(); },
   async refreshStatus() {
     const ops = await this.ops();
@@ -880,8 +901,8 @@ function clusterPoints(items, piantaId, radius = 0.025) {
     best.items.push(it); best.sx += x; best.sy += y; best.x = best.sx / best.items.length; best.y = best.sy / best.items.length;
   }
   for (const c of clusters) {
-    const nums = c.items.map(i => i.foto.n);
-    const lab = rangeLabel(nums);
+    const nums = c.items.map(i => i.foto.reference || i.foto.n);
+    const lab = nums.some(n => isNaN(+n)) ? nums.join(', ') : rangeLabel(nums);
     c.label = lab.length <= 11 ? lab : `${c.items.length} foto`;
     c.visite = new Set(c.items.map(i => i.grp.id)).size;
     c.dirs = [];
@@ -897,10 +918,10 @@ function groupPoints(fotos, piantaId, radius = 0.015) {
     const x = +d.x, y = +d.y;
     let g = groups.find(g => Math.hypot(g.x0 - x, g.y0 - y) <= radius);
     if (!g) { g = { x0: x, y0: y, x, y, nums: [], fotos: [], dirs: new Map() }; groups.push(g); }
-    g.nums.push(f.n); g.fotos.push(f);
-    if (d.ang != null && d.ang !== '') { const a = Math.round(+d.ang / 5) * 5; if (!g.dirs.has(a)) g.dirs.set(a, []); g.dirs.get(a).push(f.n); }
+    g.nums.push(f.reference || f.n); g.fotos.push(f);
+    if (d.ang != null && d.ang !== '') { const a = Math.round(+d.ang / 5) * 5; if (!g.dirs.has(a)) g.dirs.set(a, []); g.dirs.get(a).push(f.reference || f.n); }
   }
-  return groups.map(g => ({ x: g.x0, y: g.y0, nums: g.nums, fotos: g.fotos, label: rangeLabel(g.nums), dirs: [...g.dirs.entries()].map(([ang, nums]) => ({ ang, label: rangeLabel(nums) })) }));
+  return groups.map(g => ({ x: g.x0, y: g.y0, nums: g.nums, fotos: g.fotos, label: g.nums.some(n => isNaN(+n)) ? g.nums.join(', ') : rangeLabel(g.nums), dirs: [...g.dirs.entries()].map(([ang, nums]) => ({ ang, label: nums.some(n => isNaN(+n)) ? nums.join(', ') : rangeLabel(nums) })) }));
 }
 
 /* =====================================================================
@@ -1072,7 +1093,7 @@ async function buildReport({ cant, grp, fotos, piante, perPage, withPlans, redat
   // Titolo e dati
   for (const ln of pdf.wrap(grp.data.titolo || 'Gruppo foto', CW, 17, true)) { y += 7; pdf.text(ln, M, y, { size: 17, bold: true, color: INK }); }
   y += 5;
-  const rows = [['Cantiere', cant.data.nome], ['Indirizzo', cant.data.indirizzo], ['Committente', cant.data.committente], ['Data', fmtDay(grp.data.data)], ['Numero foto', String(fotos.length)], ['Numeri foto', fotos.length ? `${rangeLabel(fotos.map(f => f.n))} (numerazione del cantiere)` : ''], ['Redatto da', redattore]].filter(r => r[1]);
+  const rows = [['Cantiere', cant.data.nome], ['Indirizzo', cant.data.indirizzo], ['Committente', cant.data.committente], ['Data', fmtDay(grp.data.data)], ['Numero foto', String(fotos.length)], ['Numeri foto', fotos.length ? `${fotos.map(f => f.reference || f.n).join(', ')} (numerazione del cantiere)` : ''], ['Redatto da', redattore]].filter(r => r[1]);
   pdf.line(M, y, W - M, y, { w: 0.2, color: LINE });
   for (const [k, v] of rows) {
     const lines = pdf.wrap(v, CW - 38, 10, false);
@@ -1138,7 +1159,7 @@ async function buildReport({ cant, grp, fotos, piante, perPage, withPlans, redat
       pdf.text('Foto non disponibile su questo dispositivo', x + cellW / 2, yy + boxH / 2, { size: 9, color: MUTED, align: 'center' });
     }
     let cy = yy + boxH + 5.2;
-    const lbl = `Foto n. ${f.n}`;
+    const lbl = `Foto n. ${f.reference || f.n}`;
     pdf.rect(x, cy - 3.6, 2.2, 4.6, { fill: SIG });
     pdf.text(lbl, x + 4, cy, { size: 9.5, bold: true, color: INK });
     pdf.text(fmtDateTime(f.data.taken), x + cellW, cy, { size: 7.8, color: MUTED, align: 'right' });
@@ -1242,7 +1263,7 @@ async function buildDocx({ cant, grp, fotos, piante, perPage, withPlans, redatto
 
   // Dati principali
   const rows = [['Cantiere', cant.data.nome], ['Indirizzo', cant.data.indirizzo], ['Committente', cant.data.committente], ['Data', fmtDay(grp.data.data)], ['Numero foto', String(fotos.length)],
-    ['Numeri foto', fotos.length ? `${rangeLabel(fotos.map(f => f.n))} (numerazione del cantiere)` : ''], ['Redatto da', redattore]].filter(r => r[1]);
+    ['Numeri foto', fotos.length ? `${fotos.map(f => f.reference || f.n).join(', ')} (numerazione del cantiere)` : ''], ['Redatto da', redattore]].filter(r => r[1]);
   body.push(`<w:tbl><w:tblPr><w:tblW w:w="${TW(CW)}" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="${LINE}"/><w:insideH w:val="single" w:sz="4" w:color="${LINE}"/><w:bottom w:val="single" w:sz="4" w:color="${LINE}"/></w:tblBorders><w:tblCellMar><w:top w:w="70" w:type="dxa"/><w:bottom w:w="70" w:type="dxa"/><w:left w:w="0" w:type="dxa"/></w:tblCellMar></w:tblPr>` +
     `<w:tblGrid><w:gridCol w:w="${TW(38)}"/><w:gridCol w:w="${TW(CW - 38)}"/></w:tblGrid>` +
     rows.map(([k, v]) => `<w:tr><w:tc><w:tcPr><w:tcW w:w="${TW(38)}" w:type="dxa"/></w:tcPr>${para(run(k.toUpperCase(), { bold: true, size: 15, color: MUTED, spacing: 10 }), { after: 0 })}</w:tc>` +
@@ -1290,7 +1311,7 @@ async function buildDocx({ cant, grp, fotos, piante, perPage, withPlans, redatto
     } catch { pic = para(run('Foto non disponibile su questo dispositivo', { size: 18, color: MUTED }), { align: 'center', after: 60 }); }
     const where = f.data.pianta ? `Planimetria: ${nameOf(f.data.pianta)}` : 'Senza punto su planimetria';
     cells.push(pic +
-      para(run(`Foto n. ${f.n}`, { bold: true, size: 19, color: INK }) + tab + run(fmtDateTime(f.data.taken), { size: 16, color: MUTED }), { tabs: [{ val: 'right', pos: TW(cellW) - 60 }], after: 20 }) +
+      para(run(`Foto n. ${f.reference || f.n}`, { bold: true, size: 19, color: INK }) + tab + run(fmtDateTime(f.data.taken), { size: 16, color: MUTED }), { tabs: [{ val: 'right', pos: TW(cellW) - 60 }], after: 20 }) +
       para(run(where + (f.data.autore ? ` · ${f.data.autore}` : ''), { size: 15, color: MUTED }), { after: 30 }) +
       (f.data.nota ? para(run(f.data.nota, { size: 18, color: INK }), { after: 40, line: 264 }) : para('', { after: 0 })));
   }
@@ -1713,7 +1734,7 @@ function GruppoView(cant, grp) {
   function tile(f) {
     const im = h('img', { alt: `Foto ${f.n}`, loading: 'lazy' }); Store.thumbURL(f).then(u => im.src = u).catch(() => {});
     return h('button', { class: 'tile', type: 'button', onclick: () => Nav.push(() => FotoView(cant, grp, fotos, Math.max(0, fotos.indexOf(f)))), 'aria-label': `Foto ${f.n}${f.data.nota ? ': ' + f.data.nota : ''}` },
-      im, h('span', { class: 'num' }, f.n),
+      im, h('span', { class: 'num' }, f.reference || f.n),
       f.error ? h('span', { class: 'state err', title: 'Errore di caricamento' }, icon('alert')) : f.pending ? h('span', { class: 'state', title: 'Da caricare' }, icon('clock')) : null,
       f.data.nota ? h('span', { class: 'cap' }, h('span', null, f.data.nota)) : null);
   }
@@ -1783,7 +1804,7 @@ function GruppoView(cant, grp) {
     const a = await sheet(grp.data.titolo, items);
     if (a === 'share') {
       const b = busy('Preparazione delle foto…'); const files = [];
-      try { for (const f of fotos) { files.push(new File([await Store.getBlob(f)], `${slug(grp.data.titolo)}_${String(f.n).padStart(3, '0')}.jpg`, { type: 'image/jpeg' })); b.set(`Foto ${files.length} di ${fotos.length}`, files.length / fotos.length); } }
+      try { for (const f of fotos) { files.push(new File([await Store.getBlob(f)], `${slug(grp.data.titolo)}_${String(f.n).padStart(3, '0')}_${String(f.data.photoUid || f.id).slice(-8)}.jpg`, { type: 'image/jpeg' })); b.set(`Foto ${files.length} di ${fotos.length}`, files.length / fotos.length); } }
       catch (e) { b.close(); return toast('Alcune foto non sono disponibili senza rete', 'err'); }
       b.close();
       await modal({ title: `${files.length} foto pronte`, body: h('p', { class: 'modal-text' }, 'Scegli «Salva immagini» (iPhone) o la Galleria / File (Android).'), actions: [{ label: 'Annulla', value: null }, { label: 'Salva sul telefono', kind: 'primary', icon: 'download', onClick: () => { navigator.share({ files }).catch(() => {}); } }] });
@@ -1815,11 +1836,12 @@ function ScattoView(cant, grp) {
   const strip = h('div', { class: 'strip' });
   const camBtn = h('button', { class: 'btn primary big grow', type: 'button', onclick: () => take(true) }, icon('camera'), 'Scatta / prossimo scatto');
   const galBtn = h('button', { class: 'btn big', type: 'button', onclick: () => take(false) }, icon('image'), 'Galleria');
+  const liveBtn = h('button', { class: 'btn small', type: 'button', onclick: openLiveCamera }, icon('camera'), 'Fotocamera continua');
   const el = h('div', null,
     AppBar({ title: 'Punto di ripresa', sub: grp.data.titolo }),
     h('main', { class: 'main gut' }, chips, planBox, hint, h('div', { class: 'btn-row' }, dirBtn, clrBtn, newBtn),
       field('Nota per le prossime foto (facoltativa)', nota, 'Resta valida finché non la cambi; ogni foto si può correggere dopo.'),
-      stripLbl, strip),
+      h('div', { class: 'btn-row' }, liveBtn), stripLbl, strip),
     actionBar(galBtn, camBtn));
   function paint() {
     const hasPlan = !!sel;
@@ -1855,6 +1877,9 @@ function ScattoView(cant, grp) {
     if (sel && !point) { toast('Prima tocca la planimetria nel punto in cui ti trovi', 'err'); planBox.scrollIntoView({ behavior: 'smooth', block: 'center' }); hint.classList.remove('flash'); void hint.offsetWidth; hint.classList.add('flash'); return; }
     const files = await pickFiles({ accept: 'image/*', capture: camera ? 'environment' : null, multiple: !camera });
     if (!files.length) return;
+    await saveFiles(files, camera);
+  }
+  async function saveFiles(files, camera) {
     const st = Settings.get(); const b = files.length > 1 ? busy('Salvataggio foto…') : null;
     try {
       if (!numP) numP = nextNumFor(cant);
@@ -1877,6 +1902,34 @@ function ScattoView(cant, grp) {
       b?.close(); toast(files.length > 1 ? `${files.length} foto salvate sul dispositivo` : 'Foto salvata sul dispositivo');
       await updateShotStatuses(); paint();
     } catch (e) { b?.close(); toast('Foto non salvata: ' + e.message, 'err'); }
+  }
+  async function openLiveCamera() {
+    if (sel && !point) { toast('Seleziona prima il punto sulla planimetria', 'err'); return; }
+    if (!navigator.mediaDevices?.getUserMedia) { await take(true); return; }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); }
+    catch { toast('Fotocamera interna non disponibile: uso la fotocamera del telefono'); await take(true); return; }
+    const video = h('video', { autoplay: true, playsinline: true, muted: true, style: 'width:100%;max-height:65vh;background:#111;border-radius:12px' });
+    video.srcObject = stream;
+    const overlay = h('div', { class: 'fc-camera-overlay' });
+    const count = h('span', null, 'Punto e direzione mantenuti');
+    const stop = () => { stream.getTracks().forEach(t => t.stop()); overlay.remove(); };
+    const shutter = h('button', { class: 'btn primary big', type: 'button' }, icon('camera'), 'Scatta');
+    shutter.onclick = async () => {
+      if (!video.videoWidth) return;
+      shutter.disabled = true;
+      try {
+        const c = document.createElement('canvas'); c.width = video.videoWidth; c.height = video.videoHeight;
+        c.getContext('2d').drawImage(video, 0, 0);
+        const b = await canvasToBlob(c, 'image/jpeg', .9);
+        await saveFiles([new File([b], 'scatto-' + Date.now() + '.jpg', { type: 'image/jpeg' })], true);
+        count.textContent = shots.length + ' foto acquisite · puoi continuare';
+      } finally { shutter.disabled = false; }
+    };
+    overlay.append(h('div', { class: 'fc-camera-panel' }, h('div', { class: 'btn-row' }, count,
+      h('button', { class: 'btn small', type: 'button', onclick: stop }, 'Chiudi')), video, shutter));
+    document.body.append(overlay);
+    video.play().catch(() => {});
   }
   let unsubscribeSync = null;
   async function updateShotStatuses() {
@@ -1940,7 +1993,7 @@ function FotoView(cant, grp, fotos, idx) {
   function renderPlan(p) {
     pv?.destroy(); pv = null; editPoint = null;
     if (!p) return planBox.replaceChildren();
-    const pt = () => ({ x: (editPoint || f.data).x, y: (editPoint || f.data).y, label: String(f.n), active: !!editPoint, dirs: (editPoint || f.data).ang != null ? [{ ang: +(editPoint || f.data).ang }] : [] });
+    const pt = () => ({ x: (editPoint || f.data).x, y: (editPoint || f.data).y, label: String(f.reference || f.n), active: !!editPoint, dirs: (editPoint || f.data).ang != null ? [{ ang: +(editPoint || f.data).ang }] : [] });
     let dirMode = false;
     const editBtn = h('button', { class: 'btn small', type: 'button' }, icon('pin'), 'Sposta punto');
     const dirBtn = h('button', { class: 'btn small', type: 'button', hidden: true }, icon('compass'), 'Direzione');
@@ -2114,7 +2167,7 @@ function SearchView() {
     const f = it.foto.data;
     return h('button', { class: 'row', type: 'button', onclick: go }, th,
       h('div', { class: 'row-main' },
-        h('div', { class: 'row-title' }, `Foto n. ${it.foto.n}`, h('span', { class: 'res-sub' }, ` · ${it.grp.data.titolo}`)),
+        h('div', { class: 'row-title' }, `Foto n. ${it.foto.reference || it.foto.n}`, h('span', { class: 'res-sub' }, ` · ${it.grp.data.titolo}`)),
         f.nota ? h('div', { class: 'row-sub res-note' }, highlight(f.nota, terms)) : null,
         h('div', { class: 'row-sub' }, `${it.cant.data.nome} · ${fmtDateTime(f.taken)}`)),
       icon('chev', 'chev'));
@@ -2171,9 +2224,16 @@ function StoricoView(cant, pianta, focus) {
   const planBox = h('div');
   const status = h('p', { class: 'hint' });
   const timeline = h('div', { class: 'timeline' });
+  const visitFilter = h('select', { 'aria-label': 'Filtra per sopralluogo' });
+  const dateFrom = h('input', { type: 'date', 'aria-label': 'Dalla data' });
+  const dateTo = h('input', { type: 'date', 'aria-label': 'Alla data' });
+  const authorFilter = h('input', { placeholder: 'Filtra per autore', 'aria-label': 'Autore', type: 'search' });
+  const filterBox = h('div', { class: 'fc-filters' }, visitFilter, dateFrom, dateTo, authorFilter);
+  const compareBox = h('div', { class: 'fc-compare' });
+  [visitFilter, dateFrom, dateTo, authorFilter].forEach(el => el.addEventListener('input', () => { current = null; render(); }));
   const el = h('div', null,
     AppBar({ title: 'Storico dei punti', sub: cant.data.nome }),
-    h('main', { class: 'main gut no-bar' }, chips, planBox, status, timeline));
+    h('main', { class: 'main gut no-bar' }, chips, filterBox, planBox, status, timeline, compareBox));
   function paintChips() {
     chips.hidden = piante.length < 2;
     chips.replaceChildren(...piante.map(p => h('button', { class: 'chip', type: 'button', 'aria-pressed': Store.same(p.id, sel.id), onclick: () => { sel = p; current = null; focus = null; render(); } }, p.data.label)));
@@ -2181,7 +2241,13 @@ function StoricoView(cant, pianta, focus) {
   function pts() { return clusters.map(c => ({ x: c.x, y: c.y, label: c.label, dirs: [], selected: c === current, ref: c })); }
   function render() {
     paintChips();
-    clusters = data ? clusterPoints(data.items, sel.id) : [];
+    const visible = data ? data.items.filter(it => {
+      const date = it.grp.data.data || String(it.foto.data.taken || '').slice(0,10);
+      return (!visitFilter.value || it.grp.id === visitFilter.value) &&
+        (!dateFrom.value || date >= dateFrom.value) && (!dateTo.value || date <= dateTo.value) &&
+        (!authorFilter.value || String(it.foto.data.autore || '').toLowerCase().includes(authorFilter.value.trim().toLowerCase()));
+    }) : [];
+    clusters = clusterPoints(visible, sel.id);
     if (focus && clusters.length) {
       let best = null, bd = Infinity;
       for (const c of clusters) { const d = Math.hypot(c.x - focus.x, c.y - focus.y); if (d < bd) { bd = d; best = c; } }
@@ -2197,7 +2263,7 @@ function StoricoView(cant, pianta, focus) {
     status.replaceChildren(icon('clock'), h('span', null, !data ? 'Caricamento delle foto del cantiere…'
       : !clusters.length ? 'Su questa planimetria non ci sono ancora foto con il punto di ripresa.'
       : `${clusters.length} ${clusters.length === 1 ? 'punto' : 'punti'}, ${totFoto} foto. Tocca un punto per vedere tutte le foto scattate lì, dalla più vecchia alla più recente.`));
-    if (!current) return timeline.replaceChildren();
+    if (!current) { compareBox.replaceChildren(); return timeline.replaceChildren(); }
     // raggruppa per gruppo (sopralluogo), in ordine di data
     const byGrp = new Map();
     for (const it of current.items) { if (!byGrp.has(it.grp)) byGrp.set(it.grp, []); byGrp.get(it.grp).push(it.foto); }
@@ -2217,18 +2283,44 @@ function StoricoView(cant, pianta, focus) {
             const im = h('img', { alt: `Foto ${f.n}`, loading: 'lazy' }); Store.thumbURL(f).then(u => im.src = u).catch(() => {});
             const all = grp.fotos || fotos;
             return h('button', { class: 'tile', type: 'button', 'aria-label': `Foto ${f.n}${f.data.nota ? ': ' + f.data.nota : ''}`, onclick: () => Nav.push(() => FotoView(cant, grp, all, Math.max(0, all.indexOf(f)))) },
-              im, h('span', { class: 'num' }, f.n), f.data.nota ? h('span', { class: 'cap' }, h('span', null, f.data.nota)) : null);
+              im, h('span', { class: 'num' }, f.reference || f.n), f.data.nota ? h('span', { class: 'cap' }, h('span', null, f.data.nota)) : null);
           }))));
     });
     timeline.replaceChildren(h('div', { class: 'card tl-card' }, head, h('div', { class: 'tl-list' }, items)));
+    compareBox.replaceChildren();
+    const candidates = [...current.items].sort((a,b)=>byTaken(a.foto,b.foto));
+    if (candidates.length < 2) return;
+    const one = h('select', { 'aria-label': 'Prima foto' });
+    const two = h('select', { 'aria-label': 'Seconda foto' });
+    const options = candidates.map((it,i) => h('option', { value: String(i) }, 'Foto ' + (it.foto.reference || it.foto.n) + ' · ' + fmtDateTime(it.foto.data.taken)));
+    one.append(...options.map(o=>o.cloneNode(true))); two.append(...options.map(o=>o.cloneNode(true)));
+    one.value = '0'; two.value = String(candidates.length - 1);
+    const pictures = h('div', { class: 'fc-compare-images' });
+    const update = () => {
+      pictures.replaceChildren(...[one,two].map(select => {
+        const it = candidates[+select.value], im = h('img', { alt: 'Foto ' + (it.foto.reference || it.foto.n) });
+        Store.fullURL(it.foto).then(u=>{im.src=u}).catch(()=>{im.alt='Foto non disponibile offline'});
+        return h('div', null, im, h('small', null, it.grp.data.titolo));
+      }));
+    };
+    one.onchange = two.onchange = update;
+    compareBox.append(h('h3', null, 'Confronto prima / dopo'), h('div', { class: 'fc-compare-controls' }, one, two), pictures);
+    update();
+  }
+  function updateVisitOptions() {
+    const selected = visitFilter.value;
+    const groups = data?.gruppi || [];
+    visitFilter.replaceChildren(h('option', { value: '' }, 'Tutti i sopralluoghi'),
+      ...groups.map(g => h('option', { value: g.id }, g.data.titolo + ' · ' + fmtDay(g.data.data))));
+    visitFilter.value = groups.some(g => g.id === selected) ? selected : '';
   }
   async function load() {
     piante = ((await Store.cachedList('pianta', cant.id)) || []).sort((a, b) => String(a.created).localeCompare(String(b.created)));
     if (!sel) sel = piante[0];
     if (!sel) { planBox.replaceChildren(h('div', { class: 'card empty' }, h('strong', null, 'Nessuna planimetria'), 'Carica una planimetria dalla scheda del cantiere.')); return; }
     render();
-    data = await cantiereFotos(cant, false); render();
-    if (navigator.onLine) { try { data = await cantiereFotos(cant, true); render(); } catch (e) { console.error(e); } }
+    data = await cantiereFotos(cant, false); updateVisitOptions(); render();
+    if (navigator.onLine) { try { data = await cantiereFotos(cant, true); updateVisitOptions(); render(); } catch (e) { console.error(e); } }
   }
   let loaded = false;
   return { el, route: { c: cant.id }, onShow: () => { if (!loaded) { loaded = true; load(); } }, destroy: () => pv?.destroy() };
