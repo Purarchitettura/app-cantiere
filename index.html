@@ -1913,17 +1913,24 @@ function ScattoView(cant, grp) {
     video.srcObject = stream;
     const overlay = h('div', { class: 'fc-camera-overlay' });
     const count = h('span', null, 'Punto e direzione mantenuti');
-    const stop = () => { stream.getTracks().forEach(t => t.stop()); overlay.remove(); };
+    const stop = () => { stream.getTracks().forEach(t => t.stop()); overlay.remove(); liveCameraStop = null; };
+    liveCameraStop?.();
+    liveCameraStop = stop;
     const shutter = h('button', { class: 'btn primary big', type: 'button' }, icon('camera'), 'Scatta');
     shutter.onclick = async () => {
-      if (!video.videoWidth) return;
+      if (!video.videoWidth) { toast('Fotocamera non ancora pronta', 'err'); return; }
       shutter.disabled = true;
       try {
         const c = document.createElement('canvas'); c.width = video.videoWidth; c.height = video.videoHeight;
         c.getContext('2d').drawImage(video, 0, 0);
         const b = await canvasToBlob(c, 'image/jpeg', .9);
+        const before = shots.length;
         await saveFiles([new File([b], 'scatto-' + Date.now() + '.jpg', { type: 'image/jpeg' })], true);
-        count.textContent = shots.length + ' foto acquisite · puoi continuare';
+        if (shots.length > before) count.textContent = shots.length + ' foto salvate sul dispositivo · puoi continuare';
+        else count.textContent = 'Salvataggio non riuscito: verifica lo spazio e riprova';
+      } catch (e) {
+        count.textContent = 'Scatto non salvato: ' + (e.message || e);
+        toast(count.textContent, 'err');
       } finally { shutter.disabled = false; }
     };
     overlay.append(h('div', { class: 'fc-camera-panel' }, h('div', { class: 'btn-row' }, count,
@@ -1931,6 +1938,7 @@ function ScattoView(cant, grp) {
     document.body.append(overlay);
     video.play().catch(() => {});
   }
+  let liveCameraStop = null;
   let unsubscribeSync = null;
   async function updateShotStatuses() {
     const ops = await Store.ops();
@@ -1956,7 +1964,7 @@ function ScattoView(cant, grp) {
     choose(piante.find(p => Store.resolve(p.id) === last) || piante[0] || null);
   }
   let loaded = false;
-  return { el, busyAuth: true, onShow: () => { if (!loaded) { loaded = true; load(); } }, destroy: () => { unsubscribeSync?.(); pv?.destroy(); } };
+  return { el, busyAuth: true, onShow: () => { if (!loaded) { loaded = true; load(); } }, destroy: () => { liveCameraStop?.(); unsubscribeSync?.(); pv?.destroy(); } };
 }
 
 /* ---------- Foto singola ---------- */
