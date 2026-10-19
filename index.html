@@ -901,8 +901,8 @@ function clusterPoints(items, piantaId, radius = 0.025) {
     best.items.push(it); best.sx += x; best.sy += y; best.x = best.sx / best.items.length; best.y = best.sy / best.items.length;
   }
   for (const c of clusters) {
-    const nums = c.items.map(i => i.foto.n);
-    const lab = rangeLabel(nums);
+    const nums = c.items.map(i => i.foto.reference || i.foto.n);
+    const lab = nums.some(n => isNaN(+n)) ? nums.join(', ') : rangeLabel(nums);
     c.label = lab.length <= 11 ? lab : `${c.items.length} foto`;
     c.visite = new Set(c.items.map(i => i.grp.id)).size;
     c.dirs = [];
@@ -918,10 +918,10 @@ function groupPoints(fotos, piantaId, radius = 0.015) {
     const x = +d.x, y = +d.y;
     let g = groups.find(g => Math.hypot(g.x0 - x, g.y0 - y) <= radius);
     if (!g) { g = { x0: x, y0: y, x, y, nums: [], fotos: [], dirs: new Map() }; groups.push(g); }
-    g.nums.push(f.n); g.fotos.push(f);
-    if (d.ang != null && d.ang !== '') { const a = Math.round(+d.ang / 5) * 5; if (!g.dirs.has(a)) g.dirs.set(a, []); g.dirs.get(a).push(f.n); }
+    g.nums.push(f.reference || f.n); g.fotos.push(f);
+    if (d.ang != null && d.ang !== '') { const a = Math.round(+d.ang / 5) * 5; if (!g.dirs.has(a)) g.dirs.set(a, []); g.dirs.get(a).push(f.reference || f.n); }
   }
-  return groups.map(g => ({ x: g.x0, y: g.y0, nums: g.nums, fotos: g.fotos, label: rangeLabel(g.nums), dirs: [...g.dirs.entries()].map(([ang, nums]) => ({ ang, label: rangeLabel(nums) })) }));
+  return groups.map(g => ({ x: g.x0, y: g.y0, nums: g.nums, fotos: g.fotos, label: g.nums.some(n => isNaN(+n)) ? g.nums.join(', ') : rangeLabel(g.nums), dirs: [...g.dirs.entries()].map(([ang, nums]) => ({ ang, label: nums.some(n => isNaN(+n)) ? nums.join(', ') : rangeLabel(nums) })) }));
 }
 
 /* =====================================================================
@@ -1093,7 +1093,7 @@ async function buildReport({ cant, grp, fotos, piante, perPage, withPlans, redat
   // Titolo e dati
   for (const ln of pdf.wrap(grp.data.titolo || 'Gruppo foto', CW, 17, true)) { y += 7; pdf.text(ln, M, y, { size: 17, bold: true, color: INK }); }
   y += 5;
-  const rows = [['Cantiere', cant.data.nome], ['Indirizzo', cant.data.indirizzo], ['Committente', cant.data.committente], ['Data', fmtDay(grp.data.data)], ['Numero foto', String(fotos.length)], ['Numeri foto', fotos.length ? `${rangeLabel(fotos.map(f => f.n))} (numerazione del cantiere)` : ''], ['Redatto da', redattore]].filter(r => r[1]);
+  const rows = [['Cantiere', cant.data.nome], ['Indirizzo', cant.data.indirizzo], ['Committente', cant.data.committente], ['Data', fmtDay(grp.data.data)], ['Numero foto', String(fotos.length)], ['Numeri foto', fotos.length ? `${fotos.map(f => f.reference || f.n).join(', ')} (numerazione del cantiere)` : ''], ['Redatto da', redattore]].filter(r => r[1]);
   pdf.line(M, y, W - M, y, { w: 0.2, color: LINE });
   for (const [k, v] of rows) {
     const lines = pdf.wrap(v, CW - 38, 10, false);
@@ -1159,7 +1159,7 @@ async function buildReport({ cant, grp, fotos, piante, perPage, withPlans, redat
       pdf.text('Foto non disponibile su questo dispositivo', x + cellW / 2, yy + boxH / 2, { size: 9, color: MUTED, align: 'center' });
     }
     let cy = yy + boxH + 5.2;
-    const lbl = `Foto n. ${f.n}`;
+    const lbl = `Foto n. ${f.reference || f.n}`;
     pdf.rect(x, cy - 3.6, 2.2, 4.6, { fill: SIG });
     pdf.text(lbl, x + 4, cy, { size: 9.5, bold: true, color: INK });
     pdf.text(fmtDateTime(f.data.taken), x + cellW, cy, { size: 7.8, color: MUTED, align: 'right' });
@@ -1263,7 +1263,7 @@ async function buildDocx({ cant, grp, fotos, piante, perPage, withPlans, redatto
 
   // Dati principali
   const rows = [['Cantiere', cant.data.nome], ['Indirizzo', cant.data.indirizzo], ['Committente', cant.data.committente], ['Data', fmtDay(grp.data.data)], ['Numero foto', String(fotos.length)],
-    ['Numeri foto', fotos.length ? `${rangeLabel(fotos.map(f => f.n))} (numerazione del cantiere)` : ''], ['Redatto da', redattore]].filter(r => r[1]);
+    ['Numeri foto', fotos.length ? `${fotos.map(f => f.reference || f.n).join(', ')} (numerazione del cantiere)` : ''], ['Redatto da', redattore]].filter(r => r[1]);
   body.push(`<w:tbl><w:tblPr><w:tblW w:w="${TW(CW)}" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="${LINE}"/><w:insideH w:val="single" w:sz="4" w:color="${LINE}"/><w:bottom w:val="single" w:sz="4" w:color="${LINE}"/></w:tblBorders><w:tblCellMar><w:top w:w="70" w:type="dxa"/><w:bottom w:w="70" w:type="dxa"/><w:left w:w="0" w:type="dxa"/></w:tblCellMar></w:tblPr>` +
     `<w:tblGrid><w:gridCol w:w="${TW(38)}"/><w:gridCol w:w="${TW(CW - 38)}"/></w:tblGrid>` +
     rows.map(([k, v]) => `<w:tr><w:tc><w:tcPr><w:tcW w:w="${TW(38)}" w:type="dxa"/></w:tcPr>${para(run(k.toUpperCase(), { bold: true, size: 15, color: MUTED, spacing: 10 }), { after: 0 })}</w:tc>` +
@@ -1311,7 +1311,7 @@ async function buildDocx({ cant, grp, fotos, piante, perPage, withPlans, redatto
     } catch { pic = para(run('Foto non disponibile su questo dispositivo', { size: 18, color: MUTED }), { align: 'center', after: 60 }); }
     const where = f.data.pianta ? `Planimetria: ${nameOf(f.data.pianta)}` : 'Senza punto su planimetria';
     cells.push(pic +
-      para(run(`Foto n. ${f.n}`, { bold: true, size: 19, color: INK }) + tab + run(fmtDateTime(f.data.taken), { size: 16, color: MUTED }), { tabs: [{ val: 'right', pos: TW(cellW) - 60 }], after: 20 }) +
+      para(run(`Foto n. ${f.reference || f.n}`, { bold: true, size: 19, color: INK }) + tab + run(fmtDateTime(f.data.taken), { size: 16, color: MUTED }), { tabs: [{ val: 'right', pos: TW(cellW) - 60 }], after: 20 }) +
       para(run(where + (f.data.autore ? ` · ${f.data.autore}` : ''), { size: 15, color: MUTED }), { after: 30 }) +
       (f.data.nota ? para(run(f.data.nota, { size: 18, color: INK }), { after: 40, line: 264 }) : para('', { after: 0 })));
   }
@@ -1734,7 +1734,7 @@ function GruppoView(cant, grp) {
   function tile(f) {
     const im = h('img', { alt: `Foto ${f.n}`, loading: 'lazy' }); Store.thumbURL(f).then(u => im.src = u).catch(() => {});
     return h('button', { class: 'tile', type: 'button', onclick: () => Nav.push(() => FotoView(cant, grp, fotos, Math.max(0, fotos.indexOf(f)))), 'aria-label': `Foto ${f.n}${f.data.nota ? ': ' + f.data.nota : ''}` },
-      im, h('span', { class: 'num' }, f.n),
+      im, h('span', { class: 'num' }, f.reference || f.n),
       f.error ? h('span', { class: 'state err', title: 'Errore di caricamento' }, icon('alert')) : f.pending ? h('span', { class: 'state', title: 'Da caricare' }, icon('clock')) : null,
       f.data.nota ? h('span', { class: 'cap' }, h('span', null, f.data.nota)) : null);
   }
@@ -1804,7 +1804,7 @@ function GruppoView(cant, grp) {
     const a = await sheet(grp.data.titolo, items);
     if (a === 'share') {
       const b = busy('Preparazione delle foto…'); const files = [];
-      try { for (const f of fotos) { files.push(new File([await Store.getBlob(f)], `${slug(grp.data.titolo)}_${String(f.n).padStart(3, '0')}.jpg`, { type: 'image/jpeg' })); b.set(`Foto ${files.length} di ${fotos.length}`, files.length / fotos.length); } }
+      try { for (const f of fotos) { files.push(new File([await Store.getBlob(f)], `${slug(grp.data.titolo)}_${String(f.n).padStart(3, '0')}_${String(f.data.photoUid || f.id).slice(-8)}.jpg`, { type: 'image/jpeg' })); b.set(`Foto ${files.length} di ${fotos.length}`, files.length / fotos.length); } }
       catch (e) { b.close(); return toast('Alcune foto non sono disponibili senza rete', 'err'); }
       b.close();
       await modal({ title: `${files.length} foto pronte`, body: h('p', { class: 'modal-text' }, 'Scegli «Salva immagini» (iPhone) o la Galleria / File (Android).'), actions: [{ label: 'Annulla', value: null }, { label: 'Salva sul telefono', kind: 'primary', icon: 'download', onClick: () => { navigator.share({ files }).catch(() => {}); } }] });
@@ -2283,7 +2283,7 @@ function StoricoView(cant, pianta, focus) {
             const im = h('img', { alt: `Foto ${f.n}`, loading: 'lazy' }); Store.thumbURL(f).then(u => im.src = u).catch(() => {});
             const all = grp.fotos || fotos;
             return h('button', { class: 'tile', type: 'button', 'aria-label': `Foto ${f.n}${f.data.nota ? ': ' + f.data.nota : ''}`, onclick: () => Nav.push(() => FotoView(cant, grp, all, Math.max(0, all.indexOf(f)))) },
-              im, h('span', { class: 'num' }, f.n), f.data.nota ? h('span', { class: 'cap' }, h('span', null, f.data.nota)) : null);
+              im, h('span', { class: 'num' }, f.reference || f.n), f.data.nota ? h('span', { class: 'cap' }, h('span', null, f.data.nota)) : null);
           }))));
     });
     timeline.replaceChildren(h('div', { class: 'card tl-card' }, head, h('div', { class: 'tl-list' }, items)));
