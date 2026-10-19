@@ -228,6 +228,20 @@ img { max-width: 100%; }
 @keyframes flash { 50% { background: var(--accent-soft); color: var(--ink); } }
 @media (prefers-reduced-motion: reduce) { .hint.flash { animation: none; } }
 
+/* Ricerca */
+.search-box { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; }
+.search-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.search-box svg { width: 20px; height: 20px; color: var(--muted); flex: none; }
+.search-box input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 13px 0; font-size: 16px; outline: none; }
+.search-status { margin: 0; }
+.search-results { display: grid; gap: 16px; }
+.search-results .section-label { margin: 0 0 -8px; }
+.res-ico { width: 40px; height: 40px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; flex: none; }
+.res-ico svg { width: 20px; height: 20px; }
+.res-sub { font-weight: 400; color: var(--muted); font-size: 14px; }
+.res-note { color: var(--ink); }
+mark { background: color-mix(in srgb, var(--signal) 45%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+
 </style>
 <div id="app"></div><div id="toasts" class="toasts" aria-live="polite"></div>
 <script>
@@ -292,7 +306,7 @@ const ICONS = {
   clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 7v5l3 2', alert: 'M12 4l9 16H3z M12 10v4 M12 17h.01',
   grid: 'M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z', map: 'M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14 M15 6v14',
   edit: 'M4 20h4L19 9l-4-4L4 16z', fit: 'M4 9V4h5 M20 9V4h-5 M4 15v5h5 M20 15v5h-5', x: 'M6 6l12 12 M18 6L6 18',
-  check: 'M5 12.5l4.5 4.5L19 7.5', cloud: 'M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.4 1.5A3.3 3.3 0 0 0 7 18z',
+  check: 'M5 12.5l4.5 4.5L19 7.5', search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z M20 20l-4-4', cloud: 'M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.4 1.5A3.3 3.3 0 0 0 7 18z',
 };
 function icon(name, cls) {
   return sv('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': name === 'more' ? 3 : 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', class: cls || null },
@@ -415,24 +429,44 @@ const Auth = {
   load() { try { const o = JSON.parse(localStorage.getItem('fc_auth') || 'null'); if (o) Object.assign(this, { tok: o.tok, exp: o.exp, user: o.user }); } catch {} },
   save() { try { localStorage.setItem('fc_auth', JSON.stringify({ tok: this.tok, exp: this.exp, user: this.user })); } catch {} },
   valid() { return !!this.tok && Date.now() < this.exp - 60000; },
-  async token() { if (this.valid()) return this.tok; const e = new Error('Accesso scaduto: accedi di nuovo per caricare'); e.authNeeded = true; throw e; },
+  async token() { if (this.valid()) return this.tok; const e = new Error('Accesso scaduto'); e.authNeeded = true; throw e; },
   redirectUri() { return CONFIG.REDIRECT_URI || (location.origin + location.pathname.replace(/index\.html$/, '')); },
-  start() {
+  // Rinnovo senza interazione: Google risponde subito se la sessione e il consenso sono ancora validi.
+  SILENT_GAP: 120000,
+  canSilent() { return !!this.user?.email && Date.now() - (+Settings.lsGet('fc_silent_at') || 0) > this.SILENT_GAP; },
+  start(opts = {}) {
+    const silent = !!opts.silent && !!this.user?.email;
     const state = uid(); Settings.lsSet('fc_oauth_state', state);
-    const p = new URLSearchParams({ client_id: CONFIG.CLIENT_ID, redirect_uri: this.redirectUri(), response_type: 'token', scope: 'https://www.googleapis.com/auth/drive', include_granted_scopes: 'true', state, prompt: this.user ? '' : 'select_account' });
+    Settings.lsSet('fc_oauth_silent', silent ? '1' : '');
+    if (silent) Settings.lsSet('fc_silent_at', String(Date.now()));
+    try { const r = Nav.route(); if (r) localStorage.setItem('fc_route', JSON.stringify(r)); else localStorage.removeItem('fc_route'); } catch {}
+    const p = new URLSearchParams({ client_id: CONFIG.CLIENT_ID, redirect_uri: this.redirectUri(), response_type: 'token', scope: 'https://www.googleapis.com/auth/drive', include_granted_scopes: 'true', state });
+    if (silent) p.set('prompt', 'none');
+    else if (!this.user) p.set('prompt', 'select_account');
     if (this.user?.email) p.set('login_hint', this.user.email);
-    if (!this.user) p.delete('login_hint');
-    if (!p.get('prompt')) p.delete('prompt');
     location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + p.toString());
+  },
+  // Rinnova se serve e se l'utente non sta facendo qualcosa che verrebbe interrotto.
+  maybeRenew(reason) {
+    const margin = reason === 'resume' ? 600000 : 60000; // al ritorno nell'app rinnova se mancano meno di 10 minuti
+    if (MODE !== 'drive' || (this.tok && Date.now() < this.exp - margin) || !this.canSilent() || !navigator.onLine) return false;
+    const v = Nav.top();
+    if (!v || v.busyAuth || document.querySelector('.modal-back') || document.visibilityState !== 'visible') return false;
+    this.start({ silent: true });
+    return true;
   },
   readRedirect() {
     if (!location.hash || !/access_token=|error=/.test(location.hash)) return null;
     const p = new URLSearchParams(location.hash.slice(1));
     history.replaceState(null, '', location.pathname + location.search);
-    if (p.get('error')) return { error: p.get('error') === 'access_denied' ? 'Accesso annullato.' : 'Accesso non riuscito: ' + p.get('error') };
+    const silent = Settings.lsGet('fc_oauth_silent') === '1'; Settings.lsSet('fc_oauth_silent', '');
     if (p.get('state') !== Settings.lsGet('fc_oauth_state')) return { error: 'Risposta di accesso non valida. Riprova.' };
+    if (p.get('error')) {
+      if (silent) return { silentFailed: true };
+      return { error: p.get('error') === 'access_denied' ? 'Accesso annullato.' : 'Accesso non riuscito: ' + p.get('error') };
+    }
     this.tok = p.get('access_token'); this.exp = Date.now() + (+p.get('expires_in') || 3600) * 1000; this.save();
-    return { ok: true };
+    return { ok: true, silent };
   },
   signOut() {
     if (this.tok) fetch('https://oauth2.googleapis.com/revoke?token=' + encodeURIComponent(this.tok), { method: 'POST' }).catch(() => {});
@@ -539,7 +573,7 @@ const Store = {
   same(a, b) { return a != null && b != null && this.resolve(a) === this.resolve(b); },
   resolveRefs(d) { const o = {}; for (const [k, v] of Object.entries(d || {})) o[k] = this.isTemp(v) ? this.resolve(v) : v; return o; },
   net(fn) { if (this.forceOffline) { const e = new Error('Connessione assente (simulata)'); e.offline = true; return Promise.reject(e); } return fn(); },
-  noteNet(e) { this.status.net = e.authNeeded ? 'auth' : 'offline'; },
+  noteNet(e) { this.status.net = e.authNeeded ? 'auth' : 'offline'; if (e.authNeeded) setTimeout(() => Auth.maybeRenew('api'), 400); },
   async ops() { return (await IDB.all('queue')).map(x => x[1]); },
 
   async cachedList(kind, parentId) {
@@ -1047,14 +1081,15 @@ const canShareFiles = () => !IN_ARTIFACT && !!navigator.canShare && (() => { try
 function syncInfo() {
   const s = Store.status; const n = s.pending;
   if (s.error) return { s: 'error', t: 'Caricamento bloccato' };
-  if (s.net === 'auth' && n) return { s: 'auth', t: `Accedi per caricare (${n})` };
+  if (s.net === 'auth' && n) return { s: 'auth', t: `Tocca per riattivare l'accesso (${n} in attesa)` };
+  if (s.net === 'auth' && MODE === 'drive' && !Auth.valid()) return { s: 'auth', t: 'Tocca per riattivare l\'accesso' };
   if (s.net === 'offline' && n) return { s: 'offline', t: `Senza rete · ${n} in attesa` };
   if (s.net === 'offline') return { s: 'offline', t: 'Senza rete' };
   if (n) return { s: 'busy', t: `Caricamento… ${n}` };
   return { s: 'ok', t: MODE === 'demo' ? 'Prova · sul telefono' : 'Archivio aggiornato' };
 }
 function syncChip(compact) {
-  const el = h('button', { class: 'sync' + (compact ? ' compact' : ''), type: 'button', 'aria-label': 'Stato archivio', onclick: () => Nav.push(() => SettingsView()) }, h('span', { class: 'dot' }), h('span', { class: 'txt' }));
+  const el = h('button', { class: 'sync' + (compact ? ' compact' : ''), type: 'button', 'aria-label': 'Stato archivio', onclick: () => { if (MODE === 'drive' && !Auth.valid() && navigator.onLine) Auth.start({ silent: Auth.canSilent() }); else Nav.push(() => SettingsView()); } }, h('span', { class: 'dot' }), h('span', { class: 'txt' }));
   paintChip(el); return el;
 }
 function paintChip(el) { const i = syncInfo(); el.dataset.s = i.s; el.querySelector('.txt').textContent = i.t; el.title = i.t; }
@@ -1067,6 +1102,8 @@ const Nav = {
   push(f) { const cur = this.top(); if (cur) cur.scrollY = window.scrollY; this.stack.push(f()); this.show(); },
   back() { const v = this.stack.pop(); v?.destroy?.(); if (!this.stack.length) this.stack.push(HomeView()); this.show(); },
   reset(f) { while (this.stack.length) this.stack.pop().destroy?.(); this.push(f); },
+  route() { for (let i = this.stack.length - 1; i >= 0; i--) if (this.stack[i].route) return this.stack[i].route; return null; },
+  pushMany(fs) { const cur = this.top(); if (cur) cur.scrollY = window.scrollY; for (const f of fs) this.stack.push(f()); this.show(); },
   show() { const v = this.top(); $('#app').replaceChildren(v.el); paintChips(); window.scrollTo(0, v.scrollY || 0); v.onShow?.(); },
 };
 function AppBar({ title, sub, back = true, actions = [], chip = true, compact = back }) {
@@ -1194,7 +1231,7 @@ function HomeView() {
   const demo = MODE === 'demo' ? h('div', { class: 'notice' }, h('strong', null, 'Modalità prova. '), 'I dati restano su questo dispositivo. Il cantiere di esempio serve solo a vedere come funziona: puoi eliminarlo.') : null;
   const ro = READONLY ? h('div', { class: 'notice' }, h('strong', null, 'Sola consultazione. '), 'Il tuo account può vedere l\'archivio ma non aggiungere foto.') : null;
   const el = h('div', null,
-    AppBar({ title: 'Cantieri', sub: MODE === 'drive' ? (Auth.user?.email || '') : 'Archivio foto', back: false, actions: [iconBtn('gear', 'Impostazioni', () => Nav.push(() => SettingsView()))] }),
+    AppBar({ title: 'Cantieri', sub: MODE === 'drive' ? (Auth.user?.email || '') : 'Archivio foto', back: false, actions: [iconBtn('search', 'Cerca', () => Nav.push(() => SearchView())), iconBtn('gear', 'Impostazioni', () => Nav.push(() => SettingsView()))] }),
     h('main', { class: 'main gut' + (READONLY ? ' no-bar' : '') }, demo, ro, list),
     READONLY ? null : actionBar(h('button', { class: 'btn primary big', type: 'button', onclick: add }, icon('plus'), 'Nuovo cantiere')));
   function render(items) {
@@ -1218,8 +1255,8 @@ function HomeView() {
   return { el, onShow: load, onStore: async () => { const c = await Store.cachedList('cantiere', ROOT_ID); if (c) render(c); } };
 }
 
-function CantiereView(cant) {
-  let tab = 'gruppi', gruppi = null, piante = null;
+function CantiereView(cant, initialTab) {
+  let tab = initialTab || 'gruppi', gruppi = null, piante = null;
   const titleEl = h('h1', { class: 'bar-title' }, cant.data.nome);
   const bar = AppBar({ title: '', sub: cant.data.indirizzo || '', actions: [iconBtn('more', 'Altre azioni', more)] });
   bar.querySelector('.bar-title').replaceWith(titleEl);
@@ -1303,7 +1340,8 @@ function CantiereView(cant) {
     }
     if (a === 'del' && await confirmBox('Eliminare il cantiere?', MODE === 'drive' ? 'La cartella del cantiere, con tutte le foto, va nel cestino di Google Drive (recuperabile da lì per 30 giorni).' : 'Verranno eliminate tutte le foto del cantiere da questo dispositivo.', 'Elimina', true)) { await Store.remove(cant); Nav.back(); }
   }
-  return { el, onShow: () => load(false), onStore: () => load(true) };
+  if (tab !== 'gruppi') setTimeout(() => setTab(tab));
+  return { el, route: { c: cant.id }, onShow: () => load(false), onStore: () => load(true) };
 }
 
 /* ---------- Gruppo di foto ---------- */
@@ -1409,7 +1447,7 @@ function GruppoView(cant, grp) {
     }
     if (a === 'del' && await confirmBox('Eliminare il gruppo?', `Verranno eliminate anche le ${fotos?.length || 0} foto del gruppo.${MODE === 'drive' ? ' Su Google Drive finiscono nel cestino.' : ''}`, 'Elimina', true)) { await Store.remove(grp); Nav.back(); }
   }
-  return { el, onShow: () => load(false), onStore: () => load(true), destroy: () => pv?.destroy() };
+  return { el, route: { c: cant.id, g: grp.id }, onShow: () => load(false), onStore: () => load(true), destroy: () => pv?.destroy() };
 }
 
 /* ---------- Scatto: punto sulla planimetria + foto ---------- */
@@ -1490,7 +1528,7 @@ function ScattoView(cant, grp) {
     choose(piante.find(p => Store.resolve(p.id) === last) || piante[0] || null);
   }
   let loaded = false;
-  return { el, onShow: () => { if (!loaded) { loaded = true; load(); } }, destroy: () => pv?.destroy() };
+  return { el, busyAuth: true, onShow: () => { if (!loaded) { loaded = true; load(); } }, destroy: () => pv?.destroy() };
 }
 
 /* ---------- Foto singola ---------- */
@@ -1549,7 +1587,7 @@ function FotoView(cant, grp, fotos, idx) {
     await Store.remove(f); toast('Foto eliminata'); Nav.back();
   }
   let loaded = false;
-  return { el, onShow: async () => { if (!loaded) { loaded = true; piante = (await Store.cachedList('pianta', cant.id)) || []; render(); } }, destroy: () => pv?.destroy() };
+  return { el, busyAuth: true, onShow: async () => { if (!loaded) { loaded = true; piante = (await Store.cachedList('pianta', cant.id)) || []; render(); } }, destroy: () => pv?.destroy() };
 }
 
 /* ---------- Impostazioni e coda ---------- */
@@ -1591,6 +1629,162 @@ function SettingsView() {
       ops.length > 30 ? h('div', { class: 'queue-item' }, `… e altri ${ops.length - 30}`) : null);
   }
   return { el, onShow: renderQueue, onStore: renderQueue };
+}
+
+/* ---------- Ricerca ---------- */
+const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const SearchIndex = {
+  items: [], builtAt: 0, netAt: 0, counts: { c: 0, g: 0, f: 0, p: 0 }, partial: false,
+  // Legge l'elenco di cantieri, gruppi, planimetrie e foto (solo i dati, non le immagini).
+  async build(useNet, onProgress) {
+    const list = async (kind, pid) => {
+      if (useNet) { try { return await Store.list(kind, pid); } catch (e) { if (!(e.offline || e.authNeeded)) throw e; this.partial = true; } }
+      const c = await Store.cachedList(kind, pid); if (!c) this.partial = true; return c || [];
+    };
+    this.partial = false;
+    const items = []; const counts = { c: 0, g: 0, f: 0, p: 0 };
+    const cantieri = await list('cantiere', ROOT_ID);
+    let done = 0;
+    await runLimited(cantieri, 3, async cant => {
+      items.push({ type: 'c', cant, own: [cant.data.nome, cant.data.indirizzo, cant.data.committente], ctx: [] });
+      counts.c++;
+      const [gruppi, piante] = await Promise.all([list('gruppo', cant.id), list('pianta', cant.id)]);
+      for (const p of piante) { items.push({ type: 'p', cant, pianta: p, own: [p.data.label], ctx: [cant.data.nome] }); counts.p++; }
+      await runLimited(gruppi, 3, async grp => {
+        items.push({ type: 'g', cant, grp, own: [grp.data.titolo, grp.data.descrizione, fmtDay(grp.data.data)], ctx: [cant.data.nome, cant.data.indirizzo] });
+        counts.g++;
+        const fotos = numberFotos(await list('foto', grp.id));
+        for (const f of fotos) {
+          const pl = piante.find(p => Store.same(p.id, f.data.pianta));
+          items.push({ type: 'f', cant, grp, foto: f, fotos, own: [f.data.nota, f.data.autore, fmtDateTime(f.data.taken), 'foto ' + f.n], ctx: [grp.data.titolo, cant.data.nome, pl?.data.label] });
+          counts.f++;
+        }
+      });
+      onProgress?.(++done, cantieri.length);
+    });
+    for (const it of items) { it.ownN = it.own.map(norm); it.hay = norm([...it.own, ...it.ctx].join(' • ')); }
+    this.items = items; this.counts = counts; this.builtAt = Date.now(); if (useNet && !this.partial) this.netAt = Date.now();
+    return items;
+  },
+  query(q, type) {
+    const terms = norm(q).split(/\s+/).filter(Boolean);
+    if (!terms.length) return [];
+    const out = [];
+    for (const it of this.items) {
+      if (type && it.type !== type) continue;
+      if (!terms.every(t => it.hay.includes(t))) continue;
+      if (!terms.some(t => it.ownN.some(o => o.includes(t)))) continue;
+      out.push(it);
+    }
+    const ord = { c: 0, g: 1, p: 2, f: 3 };
+    return out.sort((a, b) => ord[a.type] - ord[b.type] || String(b.grp?.data.data || '').localeCompare(String(a.grp?.data.data || '')));
+  },
+};
+async function runLimited(arr, n, fn) {
+  let i = 0; const workers = Array.from({ length: Math.min(n, arr.length) }, async () => { while (i < arr.length) await fn(arr[i++]); });
+  await Promise.all(workers);
+}
+function highlight(text, terms) {
+  const t = String(text || ''); const n = norm(t);
+  // trova la prima corrispondenza e mostra un estratto attorno
+  let first = -1, len = 0;
+  for (const term of terms) { const k = n.indexOf(term); if (k >= 0 && (first < 0 || k < first)) { first = k; len = term.length; } }
+  let start = 0, end = t.length;
+  if (t.length > 140 && first >= 0) { start = Math.max(0, first - 50); end = Math.min(t.length, start + 140); }
+  const slice = t.slice(start, end), ns = n.slice(start, end);
+  const marks = [];
+  for (const term of terms) { let k = ns.indexOf(term); while (k >= 0) { marks.push([k, k + term.length]); k = ns.indexOf(term, k + term.length); } }
+  marks.sort((a, b) => a[0] - b[0]);
+  const parts = []; let pos = 0;
+  for (const [a, b] of marks) { if (a < pos) continue; if (a > pos) parts.push(slice.slice(pos, a)); parts.push(h('mark', null, slice.slice(a, b))); pos = b; }
+  parts.push(slice.slice(pos));
+  return [start > 0 ? '…' : '', ...parts, end < t.length ? '…' : ''];
+}
+function SearchView() {
+  let type = '', timer = null;
+  const input = h('input', { id: 'q', type: 'search', placeholder: 'Cerca cantiere, indirizzo, gruppo, nota…', autocomplete: 'off', enterkeyhint: 'search', 'aria-label': 'Testo da cercare' });
+  const filters = [['', 'Tutto'], ['c', 'Cantieri'], ['g', 'Gruppi'], ['f', 'Foto'], ['p', 'Planimetrie']];
+  const chips = h('div', { class: 'chips' });
+  const status = h('p', { class: 'hint search-status' });
+  const results = h('div', { class: 'search-results' });
+  const el = h('div', null,
+    AppBar({ title: 'Cerca', chip: false }),
+    h('main', { class: 'main gut no-bar' }, h('div', { class: 'search-box' }, icon('search'), input), chips, status, results));
+  function paintChips() {
+    chips.replaceChildren(...filters.map(([k, l]) => h('button', { class: 'chip', type: 'button', 'aria-pressed': type === k, onclick: () => { type = k; paintChips(); run(); } }, l)));
+  }
+  function paintStatus(extra) {
+    const c = SearchIndex.counts;
+    const pl = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    const base = SearchIndex.builtAt ? `Archivio: ${pl(c.c, 'cantiere', 'cantieri')}, ${pl(c.g, 'gruppo', 'gruppi')}, ${c.f} foto, ${pl(c.p, 'planimetria', 'planimetrie')}.` : '';
+    status.replaceChildren(icon('search'), h('span', null, [base, extra, SearchIndex.partial && !extra ? 'Senza rete: cerco nei dati già salvati sul telefono.' : ''].filter(Boolean).join(' ')));
+  }
+  function row(it, terms) {
+    const go = () => openResult(it);
+    if (it.type === 'c') return h('button', { class: 'row', type: 'button', onclick: go },
+      h('div', { class: 'res-ico' }, icon('pin')),
+      h('div', { class: 'row-main' }, h('div', { class: 'row-title' }, highlight(it.cant.data.nome, terms)), h('div', { class: 'row-sub' }, highlight([it.cant.data.indirizzo, it.cant.data.committente].filter(Boolean).join(' · ') || 'Cantiere', terms))), icon('chev', 'chev'));
+    if (it.type === 'g') {
+      const d = it.grp.data.descrizione && it.ownN[1] && terms.some(t => it.ownN[1].includes(t)) ? highlight(it.grp.data.descrizione, terms) : it.cant.data.nome;
+      return h('button', { class: 'row', type: 'button', onclick: go },
+        h('div', { class: 'res-ico' }, icon('grid')),
+        h('div', { class: 'row-main' }, h('div', { class: 'row-title' }, highlight(it.grp.data.titolo, terms)), h('div', { class: 'row-sub' }, d)),
+        h('div', { class: 'row-meta' }, fmtDay(it.grp.data.data)), icon('chev', 'chev'));
+    }
+    if (it.type === 'p') return h('button', { class: 'row', type: 'button', onclick: go },
+      h('div', { class: 'res-ico' }, icon('map')),
+      h('div', { class: 'row-main' }, h('div', { class: 'row-title' }, highlight(it.pianta.data.label || 'Planimetria', terms)), h('div', { class: 'row-sub' }, it.cant.data.nome)), icon('chev', 'chev'));
+    const th = h('img', { class: 'row-thumb', alt: '', loading: 'lazy' }); Store.thumbURL(it.foto).then(u => th.src = u).catch(() => {});
+    const f = it.foto.data;
+    return h('button', { class: 'row', type: 'button', onclick: go }, th,
+      h('div', { class: 'row-main' },
+        h('div', { class: 'row-title' }, `Foto n. ${it.foto.n}`, h('span', { class: 'res-sub' }, ` · ${it.grp.data.titolo}`)),
+        f.nota ? h('div', { class: 'row-sub res-note' }, highlight(f.nota, terms)) : null,
+        h('div', { class: 'row-sub' }, `${it.cant.data.nome} · ${fmtDateTime(f.taken)}`)),
+      icon('chev', 'chev'));
+  }
+  function run() {
+    const q = input.value.trim(); const terms = norm(q).split(/\s+/).filter(Boolean);
+    try { sessionStorage.setItem('fc_q', input.value); } catch {}
+    if (!terms.length) { results.replaceChildren(h('div', { class: 'card empty' }, h('strong', null, 'Cosa cerchi?'), 'Scrivi una o più parole: nome o indirizzo del cantiere, committente, titolo o descrizione di un gruppo, nota di una foto, nome di una planimetria o una data (es. 18/10/2026).')); return; }
+    const res = SearchIndex.query(q, type);
+    if (!res.length) { results.replaceChildren(h('div', { class: 'card empty' }, h('strong', null, 'Nessun risultato'), `Nessun elemento contiene «${q}». Prova con meno parole o senza abbreviazioni.`)); return; }
+    const labels = { c: 'Cantieri', g: 'Gruppi di foto', p: 'Planimetrie', f: 'Foto' };
+    const groups = {}; for (const it of res) (groups[it.type] ||= []).push(it);
+    const out = [];
+    for (const k of ['c', 'g', 'p', 'f']) {
+      if (!groups[k]) continue;
+      const list = groups[k]; const shown = list.slice(0, 60);
+      out.push(h('div', { class: 'section-label' }, `${labels[k]} · ${list.length}`));
+      out.push(h('div', { class: 'card list' }, shown.map(it => row(it, terms)), list.length > shown.length ? h('div', { class: 'queue-item' }, `Altri ${list.length - shown.length} risultati: aggiungi una parola per restringere.`) : null));
+    }
+    results.replaceChildren(...out);
+  }
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 160); });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); run(); } });
+  async function load() {
+    paintChips();
+    try { input.value = sessionStorage.getItem('fc_q') || ''; } catch {}
+    // 1) risultati immediati dai dati salvati sul telefono
+    await SearchIndex.build(false); // include subito anche ciò che è stato appena creato sul telefono
+    paintStatus(); run();
+    setTimeout(() => input.focus(), 50);
+    // 2) aggiornamento dall'archivio (se più vecchio di 2 minuti)
+    if (Date.now() - SearchIndex.netAt > 120000) {
+      paintStatus('Aggiornamento in corso…');
+      try { await SearchIndex.build(true, (d, n) => paintStatus(`Aggiornamento ${d} di ${n} cantieri…`)); } catch (e) { toast(e.message, 'err'); }
+      paintStatus(); run();
+    }
+  }
+  let loaded = false;
+  return { el, onShow: () => { if (!loaded) { loaded = true; load(); } else run(); } };
+}
+async function openResult(it) {
+  if (it.type === 'c') return Nav.push(() => CantiereView(it.cant));
+  if (it.type === 'p') return Nav.push(() => CantiereView(it.cant, 'piante'));
+  if (it.type === 'g') return Nav.pushMany([() => CantiereView(it.cant), () => GruppoView(it.cant, it.grp)]);
+  const idx = it.fotos.indexOf(it.foto);
+  Nav.pushMany([() => CantiereView(it.cant), () => GruppoView(it.cant, it.grp), () => FotoView(it.cant, it.grp, it.fotos, Math.max(0, idx))]);
 }
 
 /* =====================================================================
@@ -1667,6 +1861,8 @@ async function boot() {
   Auth.load();
   const red = Auth.readRedirect();
   if (red?.error) return Nav.reset(() => LoginView(red.error));
+  // All'apertura: se l'accesso è scaduto lo rinnova subito, senza chiedere nulla.
+  if (!red && Auth.user && !Auth.valid() && Auth.canSilent() && navigator.onLine) { $('#app').replaceChildren(h('div', { class: 'spin' })); return Auth.start({ silent: true }); }
   if (red?.ok) {
     $('#app').replaceChildren(h('div', { class: 'spin' }));
     try {
@@ -1676,12 +1872,37 @@ async function boot() {
       if (!root) { Auth.signOut(); return Nav.reset(() => LoginView(`L'account ${user.email} non ha accesso all'archivio. Chiedi all'amministratore di condividere con te la cartella Google Drive.`)); }
       if (Auth.user && Auth.user.email !== user.email) { await Store.clearCache(); for (const k of await IDB.keys('kv')) if (String(k).startsWith('list:')) await IDB.del('kv', k); }
       Auth.user = { ...user, readonly: !root.capabilities?.canAddChildren }; Auth.save();
-    } catch (e) { return Nav.reset(() => LoginView('Verifica dell\'accesso non riuscita: ' + e.message)); }
+    } catch (e) {
+      if (!(red.silent && Auth.user && e.offline)) return Nav.reset(() => LoginView('Verifica dell\'accesso non riuscita: ' + e.message));
+    }
   }
   if (!Auth.user) return Nav.reset(() => LoginView());
   READONLY = !!Auth.user.readonly;
   await Store.init();
-  Nav.reset(() => HomeView());
+  if (red?.silentFailed) Store.status.net = 'auth';
+  if (red) await restoreRoute(); else Nav.reset(() => HomeView());
+  if (red?.silentFailed) setTimeout(() => toast('Accesso da riattivare: tocca il pallino arancione in alto'), 600);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(() => Auth.maybeRenew('resume'), 500); });
+}
+
+// Dopo il rinnovo dell'accesso riporta alla schermata in cui si era (cantiere o gruppo).
+async function restoreRoute() {
+  let r = null; try { r = JSON.parse(localStorage.getItem('fc_route') || 'null'); localStorage.removeItem('fc_route'); } catch {}
+  const views = [() => HomeView()];
+  try {
+    if (r?.c) {
+      const cant = ((await Store.cachedList('cantiere', ROOT_ID)) || []).find(x => Store.same(x.id, r.c));
+      if (cant) {
+        views.push(() => CantiereView(cant));
+        if (r.g) {
+          const grp = ((await Store.cachedList('gruppo', cant.id)) || []).find(x => Store.same(x.id, r.g));
+          if (grp) views.push(() => GruppoView(cant, grp));
+        }
+      }
+    }
+  } catch (e) { console.error(e); }
+  while (Nav.stack.length) Nav.stack.pop().destroy?.();
+  Nav.pushMany(views);
 }
 
 window.addEventListener('error', e => console.error(e.error || e.message));

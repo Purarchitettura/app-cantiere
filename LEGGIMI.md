@@ -81,7 +81,8 @@ Ricarica il file su GitHub. Finché `CLIENT_ID` e `ROOT_FOLDER_ID` sono vuoti, l
 
 ## Da sapere
 
-- **Accesso**: Google fa durare l'accesso circa un'ora. Se scade, l'app continua a funzionare e a mettere in coda le foto. Il pallino in alto diventa arancione: toccandolo si accede di nuovo e i caricamenti ripartono.
+- **Accesso**: Google fa durare l'accesso circa un'ora. L'app lo rinnova da sola, senza chiedere nulla: all'apertura, quando ci torni, e quando serve durante l'uso. Dopo il rinnovo ti riporta al cantiere o al gruppo in cui eri. Non lo rinnova mentre stai scattando o modificando una foto, per non interromperti. Se Google chiede una conferma, il pallino in alto diventa arancione: toccandolo si riattiva l'accesso e i caricamenti ripartono. Nel frattempo le foto restano in coda sul telefono.
+- **Ricerca**: con la lente nella schermata Cantieri cerchi in tutto l'archivio: nome, indirizzo e committente del cantiere, titolo e descrizione dei gruppi, note delle foto, nomi delle planimetrie e date (es. 18/10/2026). Più parole restringono la ricerca. Senza rete cerca nei dati già salvati sul telefono.
 - **Copia sul telefono**: l'app tiene una copia delle foto per lavorare senza rete. In *Impostazioni → Libera spazio* si cancella la copia locale, mentre le foto restano su Drive. Dal menu di un gruppo, *Salva le foto sul telefono* le mette nella Galleria o in Foto.
 - **Eliminazioni**: le cartelle e le foto eliminate finiscono nel cestino di Google Drive. Se Drive non permette a un collaboratore di eliminare un file caricato da altri, l'app lo segnala nella coda e l'operazione si può annullare.
 - **Qualità delle foto**: lo standard è 2048 px sul lato lungo, modificabile in *Impostazioni*. L'app ricomprime le foto per risparmiare spazio su Drive e velocizzare i caricamenti.
