@@ -26,7 +26,7 @@ App web installabile su iPhone e Android: si apre dal browser e si aggiunge alla
 
 L'accesso ai dati dipende dalle condivisioni su Google Drive. La creazione dei cantieri nell'app è riservata agli account abilitati qui sotto.
 
-### Creazione cantieri e collaborazione (versione 2.1)
+### Creazione cantieri e accesso riservato (versione 2.2)
 
 Nell'app possono creare nuovi cantieri esclusivamente questi account:
 
@@ -35,19 +35,22 @@ Nell'app possono creare nuovi cantieri esclusivamente questi account:
 
 L'elenco è in `CONFIG.CANTIERE_CREATORS` di `index.html`. Per cambiarlo serve un aggiornamento del codice; non è presente una schermata di gestione utenti. Anche gli utenti abilitati devono avere il permesso di aggiungere cartelle nell'archivio su Drive.
 
-Gli altri utenti possono aggiungere gruppi foto e foto nei cantieri di cui sono **Editor**. L'app legge il permesso del singolo cantiere: essere Visualizzatore dell'archivio non impedisce di lavorare in un cantiere condiviso separatamente come Editor. Un accesso Visualizzatore al solo cantiere consente la consultazione, senza caricamenti.
+Gli altri utenti vedono esclusivamente i cantieri assegnati in `CONFIG.CANTIERE_ACCESS` e realmente accessibili su Drive. L'assegnazione corrente è **ilario.cor87@gmail.com → Playa** (ID `1x8GdD1qM3QExkWT8Fnoh8sXv2oL91h1H`). Non vengono cercati né enumerati gli altri cantieri per questi account. Gli utenti senza assegnazioni non vedono alcun cantiere.
+
+Nei cantieri assegnati, un **Editor** può aggiungere gruppi e foto; un **Visualizzatore** può solo consultare. La cartella archivio non deve essere condivisa con i collaboratori: il login funziona anche con il solo accesso diretto al cantiere.
 
 Per applicare il vincolo anche direttamente su Drive, configura le condivisioni così:
 
 1. I due creatori sono Proprietario/Editor della cartella «Foto Cantiere - Archivio».
-2. Gli altri utenti sono Visualizzatori della cartella archivio.
-3. Condividi ciascuna cartella cantiere come Editor con tutti gli utenti che devono aggiungervi gruppi e foto.
+2. Gli altri utenti non hanno alcuna condivisione della cartella archivio, neppure come Visualizzatori.
+3. Condividi esclusivamente le cartelle dei cantieri assegnati come Editor con chi deve aggiungervi gruppi e foto.
+4. Registra gli ID delle cartelle assegnate per ciascuna email in `CONFIG.CANTIERE_ACCESS` e pubblica l'aggiornamento. Non è presente una schermata di gestione delle assegnazioni.
 
-La cartella archivio condivisa in lettura rende visibili i cantieri al suo interno: questo schema non isola la visibilità dei cantieri fra collaboratori. Non usarlo per cantieri che devono restare riservati a gruppi separati.
+L'app controlla l'accesso nella lista iniziale, nella ricerca, nell'apertura di cantiere/gruppo/foto/storico e nel ripristino delle schermate. All'avvio e al ritorno nell'app verifica di nuovo l'accesso Drive. La vecchia cache globale non concede accesso a un nuovo account; gli elenchi offline verificati sono separati per email. Una revoca rilevata online rimuove il cantiere dalla vista e dalla ricerca.
 
-**Limite di sicurezza:** il codice statico dell'app controlla l'elenco dei creatori nell'interfaccia, prima di accodare un nuovo cantiere e prima dell'invio a Drive. Non sostituisce le autorizzazioni di Google Drive: un utente che rimane Editor dell'archivio può creare cartelle direttamente su Drive o tramite API. La pubblicazione del codice non cambia automaticamente alcuna condivisione esistente. Per negare la creazione anche al di fuori dell'app occorre la configurazione Drive sopra, oppure un servizio backend che autorizzi le operazioni.
+**Confine di sicurezza:** le assegnazioni nel codice limitano l'app, mentre i permessi Google Drive proteggono i file anche fuori dall'app. Non condividere l'intero archivio con i collaboratori e rimuovi eventuali condivisioni dirette, per gruppo/dominio o tramite link che concedano accesso a cantieri non assegnati. La pubblicazione del codice non cambia automaticamente le condivisioni esistenti.
 
-Offline si usano i permessi già verificati e presenti in cache; Drive ricontrolla i permessi effettivi durante la sincronizzazione. Una revoca può quindi lasciare operazioni in coda, senza cancellarne i dati. L'aggiornamento non elimina né migra cantieri, gruppi, foto o code esistenti.
+Offline si usano le assegnazioni correnti nel codice e gli accessi già verificati per l'account; una revoca su Drive non è conoscibile finché manca la rete. Non è possibile ritirare copie già scaricate o esportate. Drive ricontrolla i permessi effettivi durante la sincronizzazione. Una revoca può lasciare operazioni in coda, senza cancellarne i dati. L'aggiornamento non elimina né migra cantieri, gruppi, foto o code esistenti.
 
 ### Permessi Google Drive di base
 
@@ -55,8 +58,8 @@ Offline si usano i permessi già verificati e presenti in cache; Drive ricontrol
 - condivisa come **Visualizzatore**: la persona può solo consultare;
 - non condivisa: l'app rifiuta l'accesso, anche se la persona ha un account Google.
 
-**Aggiungere un collaboratore**: nel Drive di contact@purarchitettura.it condividi la cartella «Foto Cantiere - Archivio» come Visualizzatore e i singoli cantieri su cui deve lavorare come Editor.
-**Togliere un utente**: rimuovi sia la condivisione dell'archivio sia quelle assegnate ai singoli cantieri. Le foto che ha già caricato restano nell'archivio.
+**Aggiungere un collaboratore**: condividi soltanto il cantiere assegnato su Drive, aggiungi email e ID in `CONFIG.CANTIERE_ACCESS` e pubblica il codice. Non condividere la cartella archivio.
+**Togliere un utente**: rimuovi l'assegnazione nel codice e la condivisione su Drive, verificando anche eventuali accessi per link/gruppo/dominio. Le foto che ha già caricato restano nell'archivio.
 
 Ogni utente deve avere un account Google (Gmail o Google Workspace). Al primo accesso Google mostra l'avviso «Google non ha verificato questa app»: si prosegue con *Avanzate* → *Vai a App Cantiere*. L'avviso compare perché l'app è privata e non è stata sottoposta alla verifica di Google, che per un uso interno non serve. Google consente a un'app non verificata al massimo 100 utenti nuovi in tutto.
 

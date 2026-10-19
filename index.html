@@ -289,11 +289,15 @@ const CONFIG = {
   REDIRECT_URI: '',         // vuoto = indirizzo della pagina; deve coincidere con quello registrato su Google Cloud
   ALLOWED_EMAILS: [],       // facoltativo: elenco email ammesse, es. ['geometrailariocorro@gmail.com']
   CANTIERE_CREATORS: ['contact@purarchitettura.it', 'geometrailariocorro@gmail.com'],
+  // Assegnazioni esplicite: ID delle sole cartelle cantiere autorizzate per account.
+  CANTIERE_ACCESS: {
+    'ilario.cor87@gmail.com': ['1x8GdD1qM3QExkWT8Fnoh8sXv2oL91h1H'], // Playa
+  },
   INTESTAZIONE_DEFAULT: 'Geom. Ilario Corrò',
   CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
 };
 const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
-const APP_VERSION = '2.1 permessi cantieri · 19/10/2026';
+const APP_VERSION = '2.2 accesso per cantiere · 19/10/2026';
 
 /* =====================================================================
    REGOLE PER GLI AGGIORNAMENTI (da rispettare in ogni modifica futura)
@@ -324,6 +328,37 @@ let READONLY = false;
 // La creazione dei cantieri e la collaborazione nei cantieri sono permessi distinti.
 // Drive resta responsabile dei permessi reali sui file e sulle cartelle.
 const Access = {
+  siteIds: null,
+  email() { return (Auth.user?.email || '').trim().toLowerCase(); },
+  isCreator() { return MODE === 'demo' || CONFIG.CANTIERE_CREATORS.some(e => e.trim().toLowerCase() === this.email()); },
+  assignedIds() { return CONFIG.CANTIERE_ACCESS[this.email()] || []; },
+  canReadCantiere(cant) {
+    if (MODE === 'demo') return true;
+    if (!Auth.user) return false;
+    const id = Store.resolve(cant.id);
+    if (Store.isTemp(id)) return this.canCreateCantiere();
+    if (!this.isCreator() && !this.assignedIds().includes(id)) return false;
+    return this.siteIds?.has(id) === true;
+  },
+  setSites(items) { this.siteIds = new Set(items.map(c => Store.resolve(c.id))); },
+  async refreshSession() {
+    if (MODE === 'demo') return;
+    const key = 'access-sites:' + this.email();
+    try {
+      const [root, sites] = await Promise.all([
+        Store.net(() => Drive.rootInfo()), Store.net(() => Drive.list('cantiere', ROOT_ID)),
+      ]);
+      Auth.user.readonly = root?.capabilities?.canAddChildren !== true;
+      Auth.save(); this.setSites(sites);
+      await IDB.put('kv', key, sites);
+      await IDB.put('kv', 'list:cantiere:' + ROOT_ID, sites);
+      if (typeof SearchIndex !== 'undefined') { SearchIndex.items = []; SearchIndex.netAt = 0; }
+    } catch (e) {
+      if (!e.offline) { this.siteIds = new Set(); throw e; }
+      // Mai riutilizzare l'elenco di un altro account o la vecchia cache globale.
+      this.setSites((await IDB.get('kv', key)) || []);
+    }
+  },
   canCreateCantiere() {
     if (MODE === 'demo') return true;
     const email = (Auth.user?.email || '').trim().toLowerCase();
@@ -334,6 +369,7 @@ const Access = {
   },
   canWriteCantiere(cant) {
     if (MODE === 'demo') return true;
+    if (!this.canReadCantiere(cant)) return false;
     if (cant.canAddChildren != null) return cant.canAddChildren === true;
     if (String(cant.id).startsWith(TMP)) return this.canCreateCantiere();
     // Compatibilità con la cache precedente: un Editor dell'archivio eredita la scrittura.
@@ -342,6 +378,7 @@ const Access = {
   async requireGroupWriter(parentId) {
     if (MODE === 'demo') return;
     const id = Store.resolve(parentId);
+    if (!this.canReadCantiere({ id })) throw new Error('Non sei autorizzato ad accedere a questo cantiere.');
     if (Store.isTemp(id)) { this.requireCantiereCreator(); return; }
     let allowed = false;
     try {
@@ -599,6 +636,14 @@ const Drive = {
     }
   },
   async list(kind, parentId) {
+    if (kind === 'cantiere' && !Access.isCreator()) {
+      const out = [];
+      for (const id of Access.assignedIds()) {
+        const f = await this.siteInfo(id);
+        if (f && !f.trashed && f.mimeType === 'application/vnd.google-apps.folder' && f.appProperties?.fc === 'cantiere') out.push(this.toEnt(f, kind, parentId));
+      }
+      return out;
+    }
     const q = `'${parentId}' in parents and trashed=false and appProperties has { key='fc' and value='${kind}' }`;
     const out = []; let pt = '';
     do {
@@ -634,6 +679,10 @@ const Drive = {
   async whoami() { const j = await (await this.f(`${API}/about?fields=user(displayName,emailAddress)`)).json(); return { name: j.user?.displayName || '', email: (j.user?.emailAddress || '').toLowerCase() }; },
   async folderInfo(id) {
     try { return await (await this.f(`${API}/files/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id,name,capabilities(canAddChildren)`)).json(); }
+    catch (e) { if (e.status === 403 || e.status === 404) return null; throw e; }
+  },
+  async siteInfo(id) {
+    try { return await (await this.f(`${API}/files/${encodeURIComponent(id)}?supportsAllDrives=true&fields=${encodeURIComponent(this.FIELDS + ',mimeType,trashed,appProperties')}`)).json(); }
     catch (e) { if (e.status === 403 || e.status === 404) return null; throw e; }
   },
   async rootInfo() { return this.folderInfo(CONFIG.ROOT_FOLDER_ID); },
@@ -681,13 +730,16 @@ const Store = {
   async cachedList(kind, parentId) {
     const p = this.resolve(parentId);
     const items = this.isTemp(p) ? [] : await IDB.get('kv', `list:${kind}:${p}`);
-    return items ? this.overlay(kind, parentId, items) : null;
+    if (!items) return null;
+    const result = await this.overlay(kind, parentId, items);
+    return kind === 'cantiere' ? result.filter(c => Access.canReadCantiere(c)) : result;
   },
   async list(kind, parentId) {
     const p = this.resolve(parentId); let items = [];
     if (!this.isTemp(p)) {
       try {
         items = await this.net(() => this.backend.list(kind, p));
+        if (kind === 'cantiere') Access.setSites(items);
         await IDB.put('kv', `list:${kind}:${p}`, items);
         if (this.status.net !== 'ok') { this.status.net = 'ok'; this.kick(); }
       } catch (e) {
@@ -696,7 +748,8 @@ const Store = {
         items = (await IDB.get('kv', `list:${kind}:${p}`)) || [];
       }
     }
-    return this.overlay(kind, parentId, items);
+    const result = await this.overlay(kind, parentId, items);
+    return kind === 'cantiere' ? result.filter(c => Access.canReadCantiere(c)) : result;
   },
   async overlay(kind, parentId, items) {
     items = items.map(e => ({ ...e, data: { ...e.data } }));
@@ -828,12 +881,14 @@ const Store = {
         ent = existing.find(f => f.data.photoUid === op.data.photoUid) || null;
       }
       if (!ent) ent = await B.create(op.kind, parent, this.resolveRefs(op.data), blob);
+      if (op.kind === 'cantiere') Access.siteIds?.add(ent.id);
       this.idmap[op.tempId] = ent.id; await IDB.put('kv', 'idmap', this.idmap);
       if (blob) { await IDB.put('blobs', 'c:' + ent.id, blob); await IDB.del('blobs', 'q:' + op.tempId); }
       const t = await IDB.get('blobs', 't:' + op.tempId);
       if (t) { await IDB.put('blobs', 't:' + ent.id, t); await IDB.del('blobs', 't:' + op.tempId); }
       const ck = `list:${op.kind}:${parent}`; const cl = (await IDB.get('kv', ck)) || [];
       cl.push(ent); await IDB.put('kv', ck, cl);
+      if (op.kind === 'cantiere' && MODE === 'drive') await IDB.put('kv', 'access-sites:' + Access.email(), cl);
     } else if (op.type === 'update') {
       const id = this.resolve(op.id); if (this.isTemp(id)) return;
       const ent = await B.update(op.kind, id, this.resolveRefs(op.data));
@@ -891,6 +946,7 @@ function numberFotos(fotos) {
 }
 // Tutte le foto del cantiere, con il gruppo a cui appartengono.
 async function cantiereFotos(cant, useNet) {
+  if (!Access.canReadCantiere(cant)) throw new Error('Non sei autorizzato ad accedere a questo cantiere.');
   const list = async (kind, pid) => {
     if (useNet) { try { return await Store.list(kind, pid); } catch (e) { if (!(e.offline || e.authNeeded)) throw e; } }
     return (await Store.cachedList(kind, pid)) || [];
@@ -1617,7 +1673,7 @@ function LoginView(error) {
   const btn = h('button', { class: 'btn primary big', type: 'button', onclick: () => Auth.start() }, 'Accedi con Google');
   const el = h('div', { class: 'login gut' }, h('div', { class: 'login-box' },
     h('div', { class: 'brand' }, h('div', { class: 'brand-mark' }, icon('pin')), h('div', null, h('h1', null, 'Foto Cantiere'), h('p', null, 'Archivio fotografico dei cantieri'))),
-    h('p', { class: 'modal-text' }, 'Accesso riservato. Entra con l\'account Google che è stato autorizzato; le foto vengono archiviate nella cartella Google Drive condivisa.'),
+    h('p', { class: 'modal-text' }, 'Accesso riservato. Entra con l\'account Google autorizzato: vedrai soltanto i cantieri che ti sono stati assegnati.'),
     err, btn,
     Auth.user ? h('p', { class: 'hint' }, 'Ultimo accesso: ', h('b', null, Auth.user.email)) : null,
     h('p', { class: 'hint' }, h('a', { href: 'privacy.html', style: 'color:var(--accent)' }, 'Informativa privacy'))));
@@ -1642,14 +1698,14 @@ function HomeView() {
   const READONLY = !Access.canCreateCantiere();
   const list = h('div', { class: 'card list' }, h('div', { class: 'spin' }));
   const demo = MODE === 'demo' ? h('div', { class: 'notice' }, h('strong', null, 'Modalità prova. '), 'I dati restano su questo dispositivo. Il cantiere di esempio serve solo a vedere come funziona: puoi eliminarlo.') : null;
-  const ro = READONLY ? h('div', { class: 'notice' }, 'La creazione dei cantieri è riservata agli utenti abilitati. Nei cantieri in cui sei Editor puoi aggiungere gruppi e foto.') : null;
+  const ro = READONLY ? h('div', { class: 'notice' }, 'Vedi solo i cantieri che ti sono stati assegnati. Nei cantieri in cui sei Editor puoi aggiungere gruppi e foto. La creazione dei cantieri è riservata agli utenti abilitati.') : null;
   const el = h('div', null,
     AppBar({ title: 'Cantieri', sub: MODE === 'drive' ? (Auth.user?.email || '') : 'Archivio foto', back: false, actions: [iconBtn('search', 'Cerca', () => Nav.push(() => SearchView())), iconBtn('gear', 'Impostazioni', () => Nav.push(() => SettingsView()))] }),
     h('main', { class: 'main gut' + (READONLY ? ' no-bar' : '') }, demo, ro, list),
     READONLY ? null : actionBar(h('button', { class: 'btn primary big', type: 'button', onclick: add }, icon('plus'), 'Nuovo cantiere')));
   function render(items) {
     items.sort((a, b) => String(b.modified || b.created).localeCompare(String(a.modified || a.created)));
-    if (!items.length) return list.replaceChildren(h('div', { class: 'empty' }, h('strong', null, 'Nessun cantiere'), READONLY ? 'Non ci sono ancora cantieri nell\'archivio.' : 'Crea il primo cantiere con il pulsante in basso.'));
+    if (!items.length) return list.replaceChildren(h('div', { class: 'empty' }, h('strong', null, 'Nessun cantiere'), READONLY ? 'Nessun cantiere assegnato e accessibile con questo account. Chiedi al responsabile di autorizzarti.' : 'Crea il primo cantiere con il pulsante in basso.'));
     list.replaceChildren(...items.map(c => h('button', { class: 'row', type: 'button', onclick: () => Nav.push(() => CantiereView(c)) },
       h('div', { class: 'row-main' }, h('div', { class: 'row-title' }, c.data.nome, stateTag(c)), h('div', { class: 'row-sub' }, [c.data.indirizzo, c.data.committente].filter(Boolean).join(' · ') || 'Nessun indirizzo')),
       icon('chev', 'chev'))));
@@ -1669,7 +1725,11 @@ function HomeView() {
   return { el, onShow: load, onStore: async () => { const c = await Store.cachedList('cantiere', ROOT_ID); if (c) render(c); } };
 }
 
+function NoCantiereAccessView() {
+  return { el: h('div', null, AppBar({ title: 'Accesso non consentito' }), h('main', { class: 'main gut no-bar' }, h('div', { class: 'notice err' }, 'Non sei autorizzato ad accedere a questo cantiere.'))) };
+}
 function CantiereView(cant, initialTab) {
+  if (!Access.canReadCantiere(cant)) return NoCantiereAccessView();
   const READONLY = !Access.canWriteCantiere(cant);
   let tab = initialTab || 'gruppi', gruppi = null, piante = null;
   const titleEl = h('h1', { class: 'bar-title' }, cant.data.nome);
@@ -1765,6 +1825,7 @@ function CantiereView(cant, initialTab) {
 
 /* ---------- Gruppo di foto ---------- */
 function GruppoView(cant, grp) {
+  if (!Access.canReadCantiere(cant)) return NoCantiereAccessView();
   const READONLY = !Access.canWriteCantiere(cant);
   let mode = 'grid', fotos = null, piante = [], planSel = null, pv = null;
   const titleEl = h('h1', { class: 'bar-title' }, grp.data.titolo);
@@ -1876,6 +1937,7 @@ function GruppoView(cant, grp) {
 
 /* ---------- Scatto: punto sulla planimetria + foto ---------- */
 function ScattoView(cant, grp) {
+  if (!Access.canReadCantiere(cant)) return NoCantiereAccessView();
   if (!Access.canWriteCantiere(cant)) { toast('Non hai il permesso di aggiungere foto a questo cantiere.', 'err'); return GruppoView(cant, grp); }
   let piante = null, sel = null, point = null, dirMode = false, pv = null, numP = null; const shots = [];
   const lastKey = 'fc_lastp_' + Store.resolve(cant.id);
@@ -2023,6 +2085,7 @@ function ScattoView(cant, grp) {
 
 /* ---------- Foto singola ---------- */
 function FotoView(cant, grp, fotos, idx) {
+  if (!Access.canReadCantiere(cant)) return NoCantiereAccessView();
   const READONLY = !Access.canWriteCantiere(cant);
   let f = fotos[idx], pv = null, editPoint = null, piante = [];
   const img = h('img', { alt: '' });
@@ -2163,6 +2226,7 @@ const SearchIndex = {
     if (!terms.length) return [];
     const out = [];
     for (const it of this.items) {
+      if (!Access.canReadCantiere(it.cant)) continue;
       if (type && it.type !== type) continue;
       if (!terms.every(t => it.hay.includes(t))) continue;
       if (!terms.some(t => it.ownN.some(o => o.includes(t)))) continue;
@@ -2272,6 +2336,7 @@ function SearchView() {
   return { el, onShow: () => { if (!loaded) { loaded = true; load(); } else run(); } };
 }
 async function openResult(it) {
+  if (!Access.canReadCantiere(it.cant)) return Nav.push(() => NoCantiereAccessView());
   if (it.type === 'c') return Nav.push(() => CantiereView(it.cant));
   if (it.type === 'p') return Nav.push(() => CantiereView(it.cant, 'piante'));
   if (it.type === 'g') return Nav.pushMany([() => CantiereView(it.cant), () => GruppoView(it.cant, it.grp)]);
@@ -2282,6 +2347,7 @@ async function openResult(it) {
 /* ---------- Storico dei punti ---------- */
 // Pianta con tutti i punti di ripresa del cantiere; toccando un punto si vedono le foto scattate lì nel tempo.
 function StoricoView(cant, pianta, focus) {
+  if (!Access.canReadCantiere(cant)) return NoCantiereAccessView();
   let piante = [], sel = pianta, data = null, clusters = [], current = null, pv = null;
   const chips = h('div', { class: 'chips' });
   const planBox = h('div');
@@ -2484,21 +2550,33 @@ async function boot() {
     try {
       const user = await Drive.whoami();
       if (CONFIG.ALLOWED_EMAILS.length && !CONFIG.ALLOWED_EMAILS.map(e => e.toLowerCase()).includes(user.email)) { Auth.signOut(); return Nav.reset(() => LoginView(`L'account ${user.email} non è tra quelli autorizzati.`)); }
-      const root = await Drive.rootInfo();
-      if (!root) { Auth.signOut(); return Nav.reset(() => LoginView(`L'account ${user.email} non ha accesso all'archivio. Chiedi all'amministratore di condividere con te la cartella Google Drive.`)); }
       if (Auth.user && Auth.user.email !== user.email) { await Store.clearCache(); for (const k of await IDB.keys('kv')) if (String(k).startsWith('list:')) await IDB.del('kv', k); }
-      Auth.user = { ...user, readonly: !root.capabilities?.canAddChildren }; Auth.save();
+      Auth.user = { ...user, readonly: true };
+      await Access.refreshSession(); Auth.save();
     } catch (e) {
       if (!(red.silent && Auth.user && e.offline)) return Nav.reset(() => LoginView('Verifica dell\'accesso non riuscita: ' + e.message));
     }
   }
   if (!Auth.user) return Nav.reset(() => LoginView());
+  if (Access.siteIds === null) {
+    $('#app').replaceChildren(h('div', { class: 'spin' }));
+    try { await Access.refreshSession(); }
+    catch (e) { return Nav.reset(() => LoginView('Verifica dei cantieri autorizzati non riuscita: ' + e.message)); }
+  }
   READONLY = !!Auth.user.readonly;
   await Store.init();
   if (red?.silentFailed) Store.status.net = 'auth';
   if (red) await restoreRoute(); else Nav.reset(() => HomeView());
   if (red?.silentFailed) setTimeout(() => toast('Accesso da riattivare: tocca il pallino arancione in alto'), 600);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(() => Auth.maybeRenew('resume'), 500); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    setTimeout(() => Auth.maybeRenew('resume'), 500);
+    Access.refreshSession().then(() => {
+      const route = Nav.route();
+      if (route?.c && !Access.canReadCantiere({ id: route.c })) Nav.reset(() => HomeView());
+      else Nav.top()?.onShow?.();
+    }).catch(e => { console.error(e); Nav.reset(() => LoginView('Verifica dei permessi non riuscita. Riprova l\'accesso.')); });
+  });
 }
 
 // Dopo il rinnovo dell'accesso riporta alla schermata in cui si era (cantiere o gruppo).
