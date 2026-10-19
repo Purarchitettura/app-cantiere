@@ -242,6 +242,23 @@ img { max-width: 100%; }
 .res-note { color: var(--ink); }
 mark { background: color-mix(in srgb, var(--signal) 45%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
 
+/* Storico dei punti */
+.timeline { scroll-margin-top: 72px; }
+.tl-card { padding: 14px; display: grid; gap: 14px; }
+.tl-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.tl-sum { font-family: var(--f-display); font-weight: 600; font-size: 18px; }
+.tl-range { font-size: 12.5px; color: var(--muted); }
+.tl-list { display: grid; gap: 0; }
+.tl-item { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; position: relative; padding-bottom: 16px; }
+.tl-item::before { content: ""; position: absolute; left: 8px; top: 16px; bottom: 0; width: 2px; background: var(--line); }
+.tl-item:last-child::before { display: none; }
+.tl-item:last-child { padding-bottom: 0; }
+.tl-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); margin: 5px 0 0 3px; box-shadow: 0 0 0 3px var(--accent-soft); }
+.tl-body { display: grid; gap: 6px; min-width: 0; }
+.tl-date { font-size: 12.5px; color: var(--muted); }
+.tl-title { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; text-align: left; font-weight: 600; font-size: 15.5px; color: var(--ink); cursor: pointer; }
+.tl-title svg { width: 16px; height: 16px; color: var(--muted); }
+
 </style>
 <div id="app"></div><div id="toasts" class="toasts" aria-live="polite"></div>
 <script>
@@ -735,22 +752,76 @@ const Store = {
 };
 
 /* ---------- foto: numerazione e punti ---------- */
+// Ogni foto ha un numero progressivo del cantiere (data.num), assegnato allo scatto e mai ricalcolato.
+// Le foto più vecchie senza numero ricevono un numero provvisorio in ordine di scatto.
+const byTaken = (a, b) => String(a.data.taken || a.created).localeCompare(String(b.data.taken || b.created)) || String(a.created).localeCompare(String(b.created));
 function numberFotos(fotos) {
-  const sorted = [...fotos].sort((a, b) => String(a.data.taken || a.created).localeCompare(String(b.data.taken || b.created)) || String(a.created).localeCompare(String(b.created)));
-  sorted.forEach((f, i) => { f.n = i + 1; });
+  const sorted = [...fotos].sort((a, b) => {
+    const na = a.data.num, nb = b.data.num;
+    if (na != null && nb != null) return na - nb || byTaken(a, b);
+    if (na != null) return -1; if (nb != null) return 1;
+    return byTaken(a, b);
+  });
+  let fallback = 0;
+  sorted.forEach(f => { f.n = f.data.num != null ? +f.data.num : ++fallback; });
   return sorted;
 }
-function groupPoints(fotos, piantaId) {
-  const m = new Map();
+// Tutte le foto del cantiere, con il gruppo a cui appartengono.
+async function cantiereFotos(cant, useNet) {
+  const list = async (kind, pid) => {
+    if (useNet) { try { return await Store.list(kind, pid); } catch (e) { if (!(e.offline || e.authNeeded)) throw e; } }
+    return (await Store.cachedList(kind, pid)) || [];
+  };
+  const gruppi = await list('gruppo', cant.id);
+  const out = [];
+  await Promise.all(gruppi.map(async grp => {
+    const fotos = numberFotos(await list('foto', grp.id));
+    grp.fotos = fotos;
+    for (const f of fotos) out.push({ foto: f, grp });
+  }));
+  return { gruppi, items: out };
+}
+async function nextNumFor(cant) {
+  const { items } = await cantiereFotos(cant, navigator.onLine);
+  let max = 0;
+  for (const { foto } of items) max = Math.max(max, +(foto.data.num ?? 0) || 0);
+  // foto vecchie senza numero: si riparte dopo il loro totale, così i numeri restano unici
+  const senza = items.filter(i => i.foto.data.num == null).length;
+  return Math.max(max, senza) + 1;
+}
+// Punti dello storico: le foto scattate a pochi centimetri di distanza sulla pianta formano lo stesso punto.
+function clusterPoints(items, piantaId, radius = 0.025) {
+  const clusters = [];
+  const sorted = items.filter(i => i.foto.data.pianta && Store.same(i.foto.data.pianta, piantaId) && i.foto.data.x != null).sort((a, b) => byTaken(a.foto, b.foto));
+  for (const it of sorted) {
+    const x = +it.foto.data.x, y = +it.foto.data.y;
+    let best = null, bd = radius;
+    for (const c of clusters) { const d = Math.hypot(c.x - x, c.y - y); if (d <= bd) { bd = d; best = c; } }
+    if (!best) { best = { x, y, items: [], sx: 0, sy: 0 }; clusters.push(best); }
+    best.items.push(it); best.sx += x; best.sy += y; best.x = best.sx / best.items.length; best.y = best.sy / best.items.length;
+  }
+  for (const c of clusters) {
+    const nums = c.items.map(i => i.foto.n);
+    const lab = rangeLabel(nums);
+    c.label = lab.length <= 11 ? lab : `${c.items.length} foto`;
+    c.visite = new Set(c.items.map(i => i.grp.id)).size;
+    c.dirs = [];
+  }
+  return clusters;
+}
+function groupPoints(fotos, piantaId, radius = 0.015) {
+  // le foto scattate nello stesso punto (o a pochi centimetri) formano un unico segnaposto
+  const groups = [];
   for (const f of fotos) {
     const d = f.data;
     if (!d.pianta || !Store.same(d.pianta, piantaId) || d.x == null || d.y == null) continue;
-    const k = `${(+d.x).toFixed(4)}|${(+d.y).toFixed(4)}`;
-    if (!m.has(k)) m.set(k, { x: +d.x, y: +d.y, nums: [], fotos: [], dirs: new Map() });
-    const g = m.get(k); g.nums.push(f.n); g.fotos.push(f);
-    if (d.ang != null && d.ang !== '') { const a = Math.round(+d.ang); if (!g.dirs.has(a)) g.dirs.set(a, []); g.dirs.get(a).push(f.n); }
+    const x = +d.x, y = +d.y;
+    let g = groups.find(g => Math.hypot(g.x0 - x, g.y0 - y) <= radius);
+    if (!g) { g = { x0: x, y0: y, x, y, nums: [], fotos: [], dirs: new Map() }; groups.push(g); }
+    g.nums.push(f.n); g.fotos.push(f);
+    if (d.ang != null && d.ang !== '') { const a = Math.round(+d.ang / 5) * 5; if (!g.dirs.has(a)) g.dirs.set(a, []); g.dirs.get(a).push(f.n); }
   }
-  return [...m.values()].map(g => ({ ...g, label: rangeLabel(g.nums), dirs: [...g.dirs.entries()].map(([ang, nums]) => ({ ang, label: rangeLabel(nums) })) }));
+  return groups.map(g => ({ x: g.x0, y: g.y0, nums: g.nums, fotos: g.fotos, label: rangeLabel(g.nums), dirs: [...g.dirs.entries()].map(([ang, nums]) => ({ ang, label: rangeLabel(nums) })) }));
 }
 
 /* =====================================================================
@@ -922,7 +993,7 @@ async function buildReport({ cant, grp, fotos, piante, perPage, withPlans, redat
   // Titolo e dati
   for (const ln of pdf.wrap(grp.data.titolo || 'Gruppo foto', CW, 17, true)) { y += 7; pdf.text(ln, M, y, { size: 17, bold: true, color: INK }); }
   y += 5;
-  const rows = [['Cantiere', cant.data.nome], ['Indirizzo', cant.data.indirizzo], ['Committente', cant.data.committente], ['Data', fmtDay(grp.data.data)], ['Numero foto', String(fotos.length)], ['Redatto da', redattore]].filter(r => r[1]);
+  const rows = [['Cantiere', cant.data.nome], ['Indirizzo', cant.data.indirizzo], ['Committente', cant.data.committente], ['Data', fmtDay(grp.data.data)], ['Numero foto', String(fotos.length)], ['Numeri foto', fotos.length ? `${rangeLabel(fotos.map(f => f.n))} (numerazione del cantiere)` : ''], ['Redatto da', redattore]].filter(r => r[1]);
   pdf.line(M, y, W - M, y, { w: 0.2, color: LINE });
   for (const [k, v] of rows) {
     const lines = pdf.wrap(v, CW - 38, 10, false);
@@ -1020,6 +1091,199 @@ async function buildReport({ cant, grp, fotos, piante, perPage, withPlans, redat
     pdf.text(`Pag. ${i + 1} di ${n}`, W - M, H - 8, { size: 7, color: MUTED, align: 'right' });
   });
   return pdf.output();
+}
+
+/* =====================================================================
+   Rapporto in Word (.docx) generato nell'app, senza librerie esterne.
+   Un .docx è un archivio ZIP di file XML (formato Office Open XML).
+   ===================================================================== */
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(bytes) { let c = 0xFFFFFFFF; for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+// ZIP senza compressione (metodo "store"): Word lo legge senza problemi e le foto JPEG sono già compresse.
+function makeZip(files) {
+  const enc = new TextEncoder(); const parts = []; const central = []; let offset = 0;
+  const d = new Date(); const dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1); const dosDate = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  for (const f of files) {
+    const name = enc.encode(f.name); const data = typeof f.data === 'string' ? enc.encode(f.data) : f.data; const crc = crc32(data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, dosTime, true); lh.setUint16(12, dosDate, true); lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true);
+    lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+    parts.push(new Uint8Array(lh.buffer), name, data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
+    ch.setUint16(12, dosTime, true); ch.setUint16(14, dosDate, true); ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true);
+    ch.setUint16(28, name.length, true); ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), name);
+    offset += 30 + name.length + data.length;
+  }
+  const cdSize = central.reduce((a, b) => a + b.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+}
+const xe = s => String(s ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const MM = 36000;            // EMU per millimetro (immagini)
+const TW = mm => Math.round(mm * 56.6929); // twip per millimetro (pagina, tabelle)
+
+async function buildDocx({ cant, grp, fotos, piante, perPage, withPlans, redattore, intestazione, contatti, onProgress }) {
+  const INK = '16202A', MUTED = '5A6673', ACC = '1F4F8F', LINE = 'C9D1D9', SIG = 'F2B705';
+  const media = []; let docPrId = 1;
+  const addImage = (bytes, w, h) => { const id = media.length + 1; media.push({ name: `image${id}.jpeg`, bytes, rid: 'rIdImg' + id, w, h }); return media[media.length - 1]; };
+  const run = (text, o = {}) => {
+    const pr = [o.bold ? '<w:b/>' : '', o.color ? `<w:color w:val="${o.color}"/>` : '', o.size ? `<w:sz w:val="${o.size}"/><w:szCs w:val="${o.size}"/>` : '', o.caps ? '<w:caps/>' : '', o.spacing ? `<w:spacing w:val="${o.spacing}"/>` : ''].join('');
+    const lines = String(text ?? '').split('\n');
+    return lines.map((ln, i) => `<w:r>${pr ? `<w:rPr>${pr}</w:rPr>` : ''}${i ? '<w:br/>' : ''}<w:t xml:space="preserve">${xe(ln)}</w:t></w:r>`).join('');
+  };
+  const para = (runs, o = {}) => {
+    const pr = [o.style ? `<w:pStyle w:val="${o.style}"/>` : '', o.keepNext ? '<w:keepNext/>' : '', o.pageBreak ? '<w:pageBreakBefore/>' : '',
+      o.border ? `<w:pBdr><w:bottom w:val="single" w:sz="${o.border.sz || 4}" w:space="4" w:color="${o.border.color || LINE}"/></w:pBdr>` : '',
+      o.tabs ? `<w:tabs>${o.tabs.map(t => `<w:tab w:val="${t.val}" w:pos="${t.pos}"/>`).join('')}</w:tabs>` : '',
+      `<w:spacing w:before="${o.before ?? 0}" w:after="${o.after ?? 80}"${o.line ? ` w:line="${o.line}" w:lineRule="auto"` : ''}/>`,
+      o.align ? `<w:jc w:val="${o.align}"/>` : ''].join('');
+    return `<w:p><w:pPr>${pr}</w:pPr>${runs}</w:p>`;
+  };
+  const tab = '<w:r><w:tab/></w:r>';
+  const imageRun = (img, wmm, hmm) => {
+    const cx = Math.round(wmm * MM), cy = Math.round(hmm * MM), id = docPrId++;
+    return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${id}" name="Immagine ${id}"/>` +
+      `<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>` +
+      `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+      `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${id}" name="${img.name}"/><pic:cNvPicPr/></pic:nvPicPr>` +
+      `<pic:blipFill><a:blip r:embed="${img.rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
+      `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:ln w="3175"><a:solidFill><a:srgbClr val="${LINE}"/></a:solidFill></a:ln></pic:spPr></pic:pic>` +
+      `</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+  };
+  const fit = (w, h, maxW, maxH) => { const s = Math.min(maxW / w, maxH / h); return [w * s, h * s]; };
+  const cellBorders = (bottom) => `<w:tcBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:right w:val="nil"/><w:bottom w:val="${bottom ? 'single' : 'nil'}" w:sz="4" w:color="${LINE}"/></w:tcBorders>`;
+
+  const CW = 182; // larghezza utile in mm (A4 con margini di 14 mm)
+  const body = [];
+  body.push(para(run(grp.data.titolo || 'Gruppo foto', { bold: true, size: 34, color: INK }), { after: 160 }));
+
+  // Dati principali
+  const rows = [['Cantiere', cant.data.nome], ['Indirizzo', cant.data.indirizzo], ['Committente', cant.data.committente], ['Data', fmtDay(grp.data.data)], ['Numero foto', String(fotos.length)],
+    ['Numeri foto', fotos.length ? `${rangeLabel(fotos.map(f => f.n))} (numerazione del cantiere)` : ''], ['Redatto da', redattore]].filter(r => r[1]);
+  body.push(`<w:tbl><w:tblPr><w:tblW w:w="${TW(CW)}" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="${LINE}"/><w:insideH w:val="single" w:sz="4" w:color="${LINE}"/><w:bottom w:val="single" w:sz="4" w:color="${LINE}"/></w:tblBorders><w:tblCellMar><w:top w:w="70" w:type="dxa"/><w:bottom w:w="70" w:type="dxa"/><w:left w:w="0" w:type="dxa"/></w:tblCellMar></w:tblPr>` +
+    `<w:tblGrid><w:gridCol w:w="${TW(38)}"/><w:gridCol w:w="${TW(CW - 38)}"/></w:tblGrid>` +
+    rows.map(([k, v]) => `<w:tr><w:tc><w:tcPr><w:tcW w:w="${TW(38)}" w:type="dxa"/></w:tcPr>${para(run(k.toUpperCase(), { bold: true, size: 15, color: MUTED, spacing: 10 }), { after: 0 })}</w:tc>` +
+      `<w:tc><w:tcPr><w:tcW w:w="${TW(CW - 38)}" w:type="dxa"/></w:tcPr>${para(run(v, { size: 20, color: INK }), { after: 0 })}</w:tc></w:tr>`).join('') + '</w:tbl>');
+
+  if (grp.data.descrizione) {
+    body.push(para(run('DESCRIZIONE', { bold: true, size: 15, color: MUTED, spacing: 10 }), { before: 240, after: 60, keepNext: true }));
+    for (const p of String(grp.data.descrizione).split(/\n+/)) body.push(para(run(p, { size: 20, color: INK }), { after: 80, line: 276 }));
+  }
+
+  // Planimetrie con i punti di ripresa
+  if (withPlans) {
+    for (const p of piante) {
+      const pts = groupPoints(fotos, p.id); if (!pts.length) continue;
+      onProgress?.(`Planimetria ${p.data.label || ''}`);
+      const im = await decodeImage(await Store.getBlob(p)); const { w: iw, h: ih } = imgSize(im);
+      const s = Math.min(1, 2400 / Math.max(iw, ih)); const cw = Math.round(iw * s), ch = Math.round(ih * s);
+      const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch); ctx.drawImage(im, 0, 0, cw, ch); if (im.close) im.close();
+      drawPinsCanvas(ctx, cw, ch, pts, Math.max(cw, ch) / 760);
+      const img = addImage(new Uint8Array(await (await canvasToBlob(c, 'image/jpeg', 0.88)).arrayBuffer()), cw, ch);
+      const [w, h] = fit(cw, ch, CW, 200);
+      body.push(para(run('PLANIMETRIA  ', { bold: true, size: 15, color: MUTED, spacing: 10 }) + run(p.data.label || '', { bold: true, size: 20, color: INK }), { before: 280, after: 40, keepNext: true }));
+      body.push(para(run('Numeri = foto scattate in quel punto; freccia = direzione di ripresa', { size: 15, color: MUTED }), { after: 80, keepNext: true }));
+      body.push(para(imageRun(img, w, h), { align: 'center', after: 120 }));
+    }
+  }
+
+  // Foto, in tabella: 1 colonna (2 per pagina) o 2 colonne (4 o 6 per pagina)
+  const cols = perPage === 2 ? 1 : 2; const gap = 6;
+  const cellW = (CW - (cols - 1) * gap) / cols;
+  const boxH = perPage === 2 ? 96 : perPage === 4 ? 92 : 58;
+  const pxMax = perPage === 2 ? 1800 : 1200;
+  const nameOf = id => { const p = piante.find(x => Store.same(x.id, id)); return p ? p.data.label : ''; };
+  const cells = [];
+  for (let i = 0; i < fotos.length; i++) {
+    const f = fotos[i];
+    onProgress?.(`Foto ${i + 1} di ${fotos.length}`, (i + 1) / fotos.length);
+    let pic;
+    try {
+      const r = await resizeToJpeg(await Store.getBlob(f), pxMax, 0.82);
+      const img = addImage(new Uint8Array(await r.blob.arrayBuffer()), r.w, r.h);
+      const [w, h] = fit(r.w, r.h, cellW, boxH);
+      pic = para(imageRun(img, w, h), { align: 'center', after: 60 });
+    } catch { pic = para(run('Foto non disponibile su questo dispositivo', { size: 18, color: MUTED }), { align: 'center', after: 60 }); }
+    const where = f.data.pianta ? `Planimetria: ${nameOf(f.data.pianta)}` : 'Senza punto su planimetria';
+    cells.push(pic +
+      para(run(`Foto n. ${f.n}`, { bold: true, size: 19, color: INK }) + tab + run(fmtDateTime(f.data.taken), { size: 16, color: MUTED }), { tabs: [{ val: 'right', pos: TW(cellW) - 60 }], after: 20 }) +
+      para(run(where + (f.data.autore ? ` · ${f.data.autore}` : ''), { size: 15, color: MUTED }), { after: 30 }) +
+      (f.data.nota ? para(run(f.data.nota, { size: 18, color: INK }), { after: 40, line: 264 }) : para('', { after: 0 })));
+  }
+  if (cells.length) {
+    body.push(para(run('DOCUMENTAZIONE FOTOGRAFICA', { bold: true, size: 15, color: MUTED, spacing: 10 }), { pageBreak: true, keepNext: true, after: 120, border: { color: ACC, sz: 6 } }));
+    const grid = `<w:tblGrid>${Array.from({ length: cols * 2 - 1 }, (_, k) => `<w:gridCol w:w="${TW(k % 2 ? gap : cellW)}"/>`).join('')}</w:tblGrid>`;
+    let trs = '';
+    for (let r = 0; r < cells.length; r += cols) {
+      let tcs = '';
+      for (let c = 0; c < cols; c++) {
+        if (c) tcs += `<w:tc><w:tcPr><w:tcW w:w="${TW(gap)}" w:type="dxa"/>${cellBorders(false)}</w:tcPr>${para('', { after: 0 })}</w:tc>`;
+        const content = cells[r + c] || para('', { after: 0 });
+        tcs += `<w:tc><w:tcPr><w:tcW w:w="${TW(cellW)}" w:type="dxa"/>${cellBorders(false)}</w:tcPr>${content}</w:tc>`;
+      }
+      trs += `<w:tr><w:trPr><w:cantSplit/></w:trPr>${tcs}</w:tr>`;
+    }
+    body.push(`<w:tbl><w:tblPr><w:tblW w:w="${TW(CW)}" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="0" w:type="dxa"/><w:bottom w:w="${TW(5)}" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar></w:tblPr>${grid}${trs}</w:tbl>`);
+  }
+
+  // Firma
+  body.push(para('', { before: 360, after: 0 }));
+  body.push(para(run(`Data: ${fmtDay(todayISO())}`, { size: 19, color: INK }) + tab + run('Il tecnico', { size: 16, color: MUTED }), { tabs: [{ val: 'center', pos: TW(CW - 35) }], keepNext: true, after: 60 }));
+  body.push(para(tab + run(redattore || '', { bold: true, size: 20, color: INK }), { tabs: [{ val: 'center', pos: TW(CW - 35) }], keepNext: true, after: 600 }));
+  body.push(para(tab + run('______________________________', { color: INK }), { tabs: [{ val: 'center', pos: TW(CW - 35) }], after: 0 }));
+
+  const sect = `<w:sectPr><w:headerReference w:type="default" r:id="rIdHdr"/><w:footerReference w:type="default" r:id="rIdFtr"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="${TW(26)}" w:right="${TW(14)}" w:bottom="${TW(18)}" w:left="${TW(14)}" w:header="${TW(9)}" w:footer="${TW(8)}" w:gutter="0"/></w:sectPr>`;
+  const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document ${NS}><w:body>${body.join('')}${sect}</w:body></w:document>`;
+
+  const header = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:hdr ${NS}>` +
+    para(run(intestazione || '', { bold: true, size: 22, color: INK }) + tab + run('RAPPORTO FOTOGRAFICO', { bold: true, size: 17, color: ACC, spacing: 10 }), { tabs: [{ val: 'right', pos: TW(CW) }], after: 20 }) +
+    para(run(contatti || '', { size: 14, color: MUTED }) + tab + run(fmtDay(grp.data.data), { size: 15, color: MUTED }), { tabs: [{ val: 'right', pos: TW(CW) }], after: 0, border: { color: ACC, sz: 8 } }) + '</w:hdr>';
+  const fld = code => `<w:r><w:rPr><w:sz w:val="14"/><w:color w:val="${MUTED}"/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:rPr><w:sz w:val="14"/><w:color w:val="${MUTED}"/></w:rPr><w:instrText xml:space="preserve"> ${code} </w:instrText></w:r><w:r><w:rPr><w:sz w:val="14"/><w:color w:val="${MUTED}"/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr><w:sz w:val="14"/><w:color w:val="${MUTED}"/></w:rPr><w:t>1</w:t></w:r><w:r><w:rPr><w:sz w:val="14"/><w:color w:val="${MUTED}"/></w:rPr><w:fldChar w:fldCharType="end"/></w:r>`;
+  const footer = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:ftr ${NS}>` +
+    `<w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="${LINE}"/></w:pBdr><w:tabs><w:tab w:val="right" w:pos="${TW(CW)}"/></w:tabs><w:spacing w:after="0"/></w:pPr>` +
+    run(`${cant.data.nome} — ${grp.data.titolo}`, { size: 14, color: MUTED }) + tab + run('Pag. ', { size: 14, color: MUTED }) + fld('PAGE') + run(' di ', { size: 14, color: MUTED }) + fld('NUMPAGES') + '</w:p></w:ftr>';
+
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+    `<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial" w:cs="Arial"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:color w:val="${INK}"/><w:lang w:val="it-IT"/></w:rPr></w:rPrDefault>` +
+    `<w:pPrDefault><w:pPr><w:spacing w:after="80" w:line="252" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>` +
+    `<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>` +
+    `<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style>` +
+    `</w:styles>`;
+  const settings = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:updateFields w:val="true"/><w:defaultTabStop w:val="708"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`;
+  const docRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>` +
+    `<Relationship Id="rIdSettings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>` +
+    `<Relationship Id="rIdHdr" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>` +
+    `<Relationship Id="rIdFtr" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>` +
+    media.map(m => `<Relationship Id="${m.rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${m.name}"/>`).join('') + `</Relationships>`;
+  const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+  const core = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">` +
+    `<dc:title>${xe(`Rapporto fotografico - ${cant.data.nome} - ${grp.data.titolo}`)}</dc:title><dc:creator>${xe(redattore || intestazione || '')}</dc:creator>` +
+    `<dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`;
+  const types = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+    `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpeg" ContentType="image/jpeg"/>` +
+    `<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>` +
+    `<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>` +
+    `<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>` +
+    `<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>` +
+    `<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>` +
+    `<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`;
+  const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>` +
+    `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`;
+  return makeZip([
+    { name: '[Content_Types].xml', data: types }, { name: '_rels/.rels', data: rootRels }, { name: 'docProps/core.xml', data: core },
+    { name: 'word/document.xml', data: documentXml }, { name: 'word/_rels/document.xml.rels', data: docRels },
+    { name: 'word/styles.xml', data: styles }, { name: 'word/settings.xml', data: settings },
+    { name: 'word/header1.xml', data: header }, { name: 'word/footer1.xml', data: footer },
+    ...media.map(m => ({ name: 'word/media/' + m.name, data: m.bytes })),
+  ]);
 }
 
 /* =====================================================================
@@ -1165,8 +1429,9 @@ function PlanView({ pianta, points = [], interactive = false, onTap, onPointTap,
       }
       const lbl = p.label ?? '', tw = Math.max(26, lbl.length * 8 + 14) * u, th = 26 * u;
       const grp = sv('g', { class: onPointTap ? 'hit' : null });
-      grp.append(sv('rect', { x: cx - tw / 2, y: cy - th / 2, width: tw, height: th, rx: th / 2, fill: p.active ? '#f2b705' : '#f2b705', stroke: '#1f1a08', 'stroke-width': (p.active ? 3 : 2) * u }));
-      if (lbl) grp.append(sv('text', { x: cx, y: cy + 4.6 * u, 'text-anchor': 'middle', 'font-size': 13.5 * u, 'font-weight': 700, fill: '#1f1a08', 'font-family': 'IBM Plex Mono, monospace' }, lbl));
+      const sel = p.selected;
+      grp.append(sv('rect', { x: cx - tw / 2, y: cy - th / 2, width: tw, height: th, rx: th / 2, fill: sel ? '#1f4f8f' : '#f2b705', stroke: sel ? '#ffffff' : '#1f1a08', 'stroke-width': (p.active || sel ? 3 : 2) * u }));
+      if (lbl) grp.append(sv('text', { x: cx, y: cy + 4.6 * u, 'text-anchor': 'middle', 'font-size': 13.5 * u, 'font-weight': 700, fill: sel ? '#ffffff' : '#1f1a08', 'font-family': 'IBM Plex Mono, monospace' }, lbl));
       else grp.append(sv('circle', { cx, cy, r: 4 * u, fill: '#1f1a08' }));
       if (onPointTap) grp.addEventListener('click', e => { e.stopPropagation(); onPointTap(p); });
       g2.append(grp);
@@ -1322,9 +1587,10 @@ function CantiereView(cant, initialTab) {
     } catch (e) { b.close(); toast(/pdf|PDF|caricare/.test(e.message) ? 'Non riesco a leggere il PDF. Prova a salvarlo come immagine JPG o PNG.' : e.message, 'err'); }
   }
   async function piantaMenu(p) {
-    const items = [{ icon: 'image', label: 'Vedi', value: 'view' }];
+    const items = [{ icon: 'image', label: 'Vedi', value: 'view' }, { icon: 'clock', label: 'Storico dei punti', value: 'storico' }];
     if (!READONLY) items.push({ icon: 'edit', label: 'Rinomina', value: 'ren' }, { icon: 'trash', label: 'Elimina', value: 'del', kind: 'danger' });
     const a = await sheet(p.data.label || 'Planimetria', items);
+    if (a === 'storico') return Nav.push(() => StoricoView(cant, p));
     if (a === 'view') { const pv = PlanView({ pianta: p, height: '62vh' }); await modal({ title: p.data.label, body: pv.el, actions: [{ label: 'Chiudi', value: null }] }); pv.destroy(); }
     if (a === 'ren') { const i = h('input', { id: 'p-ren', value: p.data.label || '' }); if (await modal({ title: 'Rinomina planimetria', body: field('Nome', i), actions: [{ label: 'Annulla', value: false }, { label: 'Salva', kind: 'primary', value: true }] })) { await Store.update(p, { label: i.value.trim() || 'Planimetria' }); load(true); } }
     if (a === 'del' && await confirmBox('Eliminare la planimetria?', 'Le foto collegate restano, ma non mostreranno più il punto di ripresa.', 'Elimina', true)) { await Store.remove(p); load(true); }
@@ -1366,7 +1632,7 @@ function GruppoView(cant, grp) {
   function setMode(m) { mode = m; segA.setAttribute('aria-pressed', m === 'grid'); segB.setAttribute('aria-pressed', m === 'plan'); render(); }
   function tile(f) {
     const im = h('img', { alt: `Foto ${f.n}`, loading: 'lazy' }); Store.thumbURL(f).then(u => im.src = u).catch(() => {});
-    return h('button', { class: 'tile', type: 'button', onclick: () => Nav.push(() => FotoView(cant, grp, fotos, f.n - 1)), 'aria-label': `Foto ${f.n}${f.data.nota ? ': ' + f.data.nota : ''}` },
+    return h('button', { class: 'tile', type: 'button', onclick: () => Nav.push(() => FotoView(cant, grp, fotos, Math.max(0, fotos.indexOf(f)))), 'aria-label': `Foto ${f.n}${f.data.nota ? ': ' + f.data.nota : ''}` },
       im, h('span', { class: 'num' }, f.n),
       f.error ? h('span', { class: 'state err', title: 'Errore di caricamento' }, icon('alert')) : f.pending ? h('span', { class: 'state', title: 'Da caricare' }, icon('clock')) : null,
       f.data.nota ? h('span', { class: 'cap' }, h('span', null, f.data.nota)) : null);
@@ -1386,7 +1652,8 @@ function GruppoView(cant, grp) {
   }
   async function pointSheet(p) {
     const strip = h('div', { class: 'grid' }, p.fotos.map(f => { const t = tile(f); t.addEventListener('click', () => document.querySelector('.modal-back')?._close(null)); return t; }));
-    await modal({ title: `Punto ${p.label}`, body: strip, actions: [{ label: 'Chiudi', value: null }] });
+    const r = await modal({ title: `Punto ${p.label}`, body: strip, actions: [{ label: 'Storico del punto', icon: 'clock', value: 'storico' }, { label: 'Chiudi', value: null }] });
+    if (r === 'storico') Nav.push(() => StoricoView(cant, planSel, { x: p.x, y: p.y }));
   }
   async function load(cachedOnly) {
     const [cf, cp] = await Promise.all([Store.cachedList('foto', grp.id), Store.cachedList('pianta', cant.id)]);
@@ -1402,28 +1669,31 @@ function GruppoView(cant, grp) {
     const pl = h('input', { id: 'r-pl', type: 'checkbox', checked: true });
     const red = h('input', { id: 'r-red', value: st.firma || (MODE === 'drive' ? Auth.user?.name || '' : CONFIG.INTESTAZIONE_DEFAULT) });
     const inte = h('input', { id: 'r-int', value: cant.data.intestazione ?? CONFIG.INTESTAZIONE_DEFAULT });
-    const ok = await modal({ title: 'Rapporto fotografico', body: h('div', { class: 'form' }, field('Impaginazione', per), h('label', { class: 'check' }, pl, 'Includi la planimetria con i punti di ripresa'), field('Redatto da', red), field('Intestazione', inte, 'Si cambia in modo permanente dai dati del cantiere')),
-      actions: [{ label: 'Annulla', value: false }, { label: 'Crea PDF', kind: 'primary', icon: 'file', value: true }] });
+    const fmt = h('select', { id: 'r-fmt' }, [['pdf', 'PDF (da stampare o inviare)'], ['docx', 'Word .docx (modificabile)']].map(([v, l]) => h('option', { value: v, selected: v === (st.formato || 'pdf') || null }, l)));
+    const ok = await modal({ title: 'Rapporto fotografico', body: h('div', { class: 'form' }, field('Formato', fmt), field('Impaginazione', per), h('label', { class: 'check' }, pl, 'Includi la planimetria con i punti di ripresa'), field('Redatto da', red), field('Intestazione', inte, 'Si cambia in modo permanente dai dati del cantiere')),
+      actions: [{ label: 'Annulla', value: false }, { label: 'Crea rapporto', kind: 'primary', icon: 'file', value: true }] });
     if (!ok) return;
-    Settings.set({ perPage: +per.value });
+    const docx = fmt.value === 'docx';
+    Settings.set({ perPage: +per.value, formato: fmt.value });
     const b = busy('Preparazione del rapporto…');
     try {
-      const blob = await buildReport({ cant, grp, fotos, piante, perPage: +per.value, withPlans: pl.checked, redattore: red.value.trim(), intestazione: inte.value.trim(), contatti: cant.data.contatti ?? CONFIG.CONTATTI_DEFAULT, onProgress: (t, f) => b.set(t, f) });
+      const blob = await (docx ? buildDocx : buildReport)({ cant, grp, fotos, piante, perPage: +per.value, withPlans: pl.checked, redattore: red.value.trim(), intestazione: inte.value.trim(), contatti: cant.data.contatti ?? CONFIG.CONTATTI_DEFAULT, onProgress: (t, f) => b.set(t, f) });
       b.close();
-      const name = `Rapporto_${slug(cant.data.nome)}_${slug(grp.data.titolo)}_${grp.data.data || todayISO()}.pdf`;
+      const name = `Rapporto_${slug(cant.data.nome)}_${slug(grp.data.titolo)}_${grp.data.data || todayISO()}.${docx ? 'docx' : 'pdf'}`;
       reportResult(blob, name);
     } catch (e) { console.error(e); b.close(); toast('Rapporto non creato: ' + e.message, 'err'); }
   }
   async function reportResult(blob, name) {
-    const file = new File([blob], name, { type: 'application/pdf' });
+    const isDocx = /\.docx$/.test(name);
+    const file = new File([blob], name, { type: isDocx ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf' });
     const kb = Math.round(blob.size / 1024);
     const acts = [];
-    if (canShareFiles()) acts.push({ label: 'Condividi / Stampa', icon: 'share', kind: 'primary', onClick: () => { navigator.share({ files: [file], title: name }).catch(() => {}); return false; } });
-    if (!IN_ARTIFACT) acts.push({ label: 'Apri', icon: 'file', onClick: () => { window.open(URL.createObjectURL(blob), '_blank'); return false; } });
-    acts.push({ label: IN_ARTIFACT ? 'Scarica PDF' : 'Scarica', icon: 'download', kind: IN_ARTIFACT ? 'primary' : '', onClick: () => { saveOrShare(blob, name); return false; } });
+    if (canShareFiles()) acts.push({ label: isDocx ? 'Condividi / Apri con…' : 'Condividi / Stampa', icon: 'share', kind: 'primary', onClick: () => { navigator.share({ files: [file], title: name }).catch(() => {}); return false; } });
+    if (!IN_ARTIFACT && !isDocx) acts.push({ label: 'Apri', icon: 'file', onClick: () => { window.open(URL.createObjectURL(blob), '_blank'); return false; } });
+    acts.push({ label: IN_ARTIFACT ? (isDocx ? 'Scarica Word' : 'Scarica PDF') : 'Scarica', icon: 'download', kind: IN_ARTIFACT ? 'primary' : '', onClick: () => { saveOrShare(blob, name); return false; } });
     if (MODE === 'drive' && !READONLY) acts.push({ label: 'Salva su Drive', icon: 'cloud', onClick: async () => { await Store.create('report', grp.id, { nome: name }, blob); toast('Il rapporto verrà salvato nella cartella del gruppo'); return false; } });
     acts.push({ label: 'Chiudi', value: null });
-    await modal({ title: 'Rapporto pronto', body: h('p', { class: 'modal-text' }, `${name} · ${kb} KB. Per stamparlo aprilo e usa la stampa del telefono o del computer.`), actions: acts });
+    await modal({ title: 'Rapporto pronto', body: h('p', { class: 'modal-text' }, `${name} · ${kb} KB. ${isDocx ? 'Si apre e si modifica con Word, Pages, Google Documenti o LibreOffice.' : 'Per stamparlo aprilo e usa la stampa del telefono o del computer.'}`), actions: acts });
   }
   async function more() {
     const items = [];
@@ -1452,7 +1722,7 @@ function GruppoView(cant, grp) {
 
 /* ---------- Scatto: punto sulla planimetria + foto ---------- */
 function ScattoView(cant, grp) {
-  let piante = null, sel = null, point = null, dirMode = false, pv = null; const shots = [];
+  let piante = null, sel = null, point = null, dirMode = false, pv = null, numP = null; const shots = [];
   const lastKey = 'fc_lastp_' + Store.resolve(cant.id);
   const chips = h('div', { class: 'chips' });
   const planBox = h('div');
@@ -1507,20 +1777,24 @@ function ScattoView(cant, grp) {
     if (!files.length) return;
     const st = Settings.get(); const b = files.length > 1 ? busy('Salvataggio foto…') : null;
     try {
+      if (!numP) numP = nextNumFor(cant);
+      let num = await numP;
       for (let i = 0; i < files.length; i++) {
         b?.set(`Foto ${i + 1} di ${files.length}`, (i + 1) / files.length);
         const r = await resizeToJpeg(files[i], st.latoMax, st.qualita);
         const taken = new Date(camera ? Date.now() : (files[i].lastModified || Date.now())).toISOString();
-        const data = { taken, pianta: sel ? sel.id : null, x: sel && point ? point.x : null, y: sel && point ? point.y : null, ang: sel && point ? point.ang : null, nota: nota.value.trim(), autore: st.firma || (MODE === 'drive' ? Auth.user?.name || Auth.user?.email || '' : CONFIG.INTESTAZIONE_DEFAULT) };
+        const data = { num: num++, taken, pianta: sel ? sel.id : null, x: sel && point ? point.x : null, y: sel && point ? point.y : null, ang: sel && point ? point.ang : null, nota: nota.value.trim(), autore: st.firma || (MODE === 'drive' ? Auth.user?.name || Auth.user?.email || '' : CONFIG.INTESTAZIONE_DEFAULT) };
         const ent = await Store.create('foto', grp.id, data, r.blob);
         await Store.putThumb(ent, r.blob); shots.push(ent);
         const im = h('img', { alt: '' }); Store.thumbURL(ent).then(u => im.src = u);
-        strip.prepend(h('div', { class: 'tile' }, im, h('span', { class: 'num' }, shots.length)));
+        strip.prepend(h('div', { class: 'tile' }, im, h('span', { class: 'num' }, data.num)));
+        numP = Promise.resolve(num);
       }
       b?.close(); toast(files.length > 1 ? `${files.length} foto salvate` : 'Foto salvata'); paint();
     } catch (e) { b?.close(); toast('Foto non salvata: ' + e.message, 'err'); }
   }
   async function load() {
+    numP = nextNumFor(cant).catch(() => nextNumFor(cant));
     piante = (await Store.cachedList('pianta', cant.id)) || null;
     if (!piante) { try { piante = await Store.list('pianta', cant.id); } catch { piante = []; } }
     piante.sort((a, b) => String(a.created).localeCompare(String(b.created)));
@@ -1580,7 +1854,8 @@ function FotoView(cant, grp, fotos, idx) {
     editBtn.onclick = () => { editPoint = { x: f.data.x ?? 0.5, y: f.data.y ?? 0.5, ang: f.data.ang ?? null }; editBtn.hidden = true; dirBtn.hidden = saveBtn.hidden = tip.hidden = false; pv.setPoints([pt()]); };
     dirBtn.onclick = () => { dirMode = !dirMode; dirBtn.className = 'btn small' + (dirMode ? ' primary' : ''); tip.lastChild.textContent = dirMode ? 'Tocca verso dove era puntato il telefono.' : 'Tocca la pianta per spostare il punto.'; };
     saveBtn.onclick = async () => { await Store.update(f, { x: editPoint.x, y: editPoint.y, ang: editPoint.ang }); toast('Punto aggiornato'); renderPlan(p); };
-    planBox.replaceChildren(h('div', { class: 'section-label' }, 'Punto di ripresa'), pv.el, tip, READONLY ? null : h('div', { class: 'btn-row' }, editBtn, dirBtn, saveBtn));
+    const histBtn = f.data.x != null ? h('button', { class: 'btn small', type: 'button', onclick: () => Nav.push(() => StoricoView(cant, p, { x: +f.data.x, y: +f.data.y })) }, icon('clock'), 'Storico del punto') : null;
+    planBox.replaceChildren(h('div', { class: 'section-label' }, 'Punto di ripresa'), pv.el, tip, h('div', { class: 'btn-row' }, histBtn, READONLY ? null : [editBtn, dirBtn, saveBtn]));
   }
   async function del() {
     if (!await confirmBox(`Eliminare la foto n. ${f.n}?`, MODE === 'drive' ? 'La foto va nel cestino di Google Drive.' : 'La foto verrà eliminata dal dispositivo.', 'Elimina', true)) return;
@@ -1787,6 +2062,77 @@ async function openResult(it) {
   Nav.pushMany([() => CantiereView(it.cant), () => GruppoView(it.cant, it.grp), () => FotoView(it.cant, it.grp, it.fotos, Math.max(0, idx))]);
 }
 
+/* ---------- Storico dei punti ---------- */
+// Pianta con tutti i punti di ripresa del cantiere; toccando un punto si vedono le foto scattate lì nel tempo.
+function StoricoView(cant, pianta, focus) {
+  let piante = [], sel = pianta, data = null, clusters = [], current = null, pv = null;
+  const chips = h('div', { class: 'chips' });
+  const planBox = h('div');
+  const status = h('p', { class: 'hint' });
+  const timeline = h('div', { class: 'timeline' });
+  const el = h('div', null,
+    AppBar({ title: 'Storico dei punti', sub: cant.data.nome }),
+    h('main', { class: 'main gut no-bar' }, chips, planBox, status, timeline));
+  function paintChips() {
+    chips.hidden = piante.length < 2;
+    chips.replaceChildren(...piante.map(p => h('button', { class: 'chip', type: 'button', 'aria-pressed': Store.same(p.id, sel.id), onclick: () => { sel = p; current = null; focus = null; render(); } }, p.data.label)));
+  }
+  function pts() { return clusters.map(c => ({ x: c.x, y: c.y, label: c.label, dirs: [], selected: c === current, ref: c })); }
+  function render() {
+    paintChips();
+    clusters = data ? clusterPoints(data.items, sel.id) : [];
+    if (focus && clusters.length) {
+      let best = null, bd = Infinity;
+      for (const c of clusters) { const d = Math.hypot(c.x - focus.x, c.y - focus.y); if (d < bd) { bd = d; best = c; } }
+      current = best; focus = null;
+    } else if (current) { const ids = new Set(current.items.map(i => Store.resolve(i.foto.id))); current = clusters.find(c => c.items.some(i => ids.has(Store.resolve(i.foto.id)))) || null; }
+    pv?.destroy();
+    pv = PlanView({ pianta: sel, points: pts(), height: '52vh', onPointTap: p => { current = p.ref; pv.setPoints(pts()); renderTimeline(); setTimeout(() => timeline.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); } });
+    planBox.replaceChildren(pv.el);
+    renderTimeline();
+  }
+  function renderTimeline() {
+    const totFoto = clusters.reduce((a, c) => a + c.items.length, 0);
+    status.replaceChildren(icon('clock'), h('span', null, !data ? 'Caricamento delle foto del cantiere…'
+      : !clusters.length ? 'Su questa planimetria non ci sono ancora foto con il punto di ripresa.'
+      : `${clusters.length} ${clusters.length === 1 ? 'punto' : 'punti'}, ${totFoto} foto. Tocca un punto per vedere tutte le foto scattate lì, dalla più vecchia alla più recente.`));
+    if (!current) return timeline.replaceChildren();
+    // raggruppa per gruppo (sopralluogo), in ordine di data
+    const byGrp = new Map();
+    for (const it of current.items) { if (!byGrp.has(it.grp)) byGrp.set(it.grp, []); byGrp.get(it.grp).push(it.foto); }
+    const groups = [...byGrp.entries()].sort((a, b) => String(a[0].data.data || '').localeCompare(String(b[0].data.data || '')) || byTaken(a[1][0], b[1][0]));
+    const head = h('div', { class: 'tl-head' },
+      h('div', null, h('div', { class: 'section-label', style: 'margin:0' }, 'Punto selezionato'),
+        h('div', { class: 'tl-sum' }, `${current.items.length} foto in ${groups.length} ${groups.length === 1 ? 'sopralluogo' : 'sopralluoghi'}`)),
+      groups.length > 1 ? h('span', { class: 'tl-range mono' }, `${fmtDay(groups[0][0].data.data)} → ${fmtDay(groups[groups.length - 1][0].data.data)}`) : null);
+    const items = groups.map(([grp, fotos]) => {
+      fotos.sort((a, b) => a.n - b.n);
+      return h('div', { class: 'tl-item' },
+        h('div', { class: 'tl-dot' }),
+        h('div', { class: 'tl-body' },
+          h('div', { class: 'tl-date mono' }, fmtDay(grp.data.data)),
+          h('button', { class: 'tl-title', type: 'button', onclick: () => Nav.push(() => GruppoView(cant, grp)) }, grp.data.titolo, icon('chev')),
+          h('div', { class: 'grid' }, fotos.map(f => {
+            const im = h('img', { alt: `Foto ${f.n}`, loading: 'lazy' }); Store.thumbURL(f).then(u => im.src = u).catch(() => {});
+            const all = grp.fotos || fotos;
+            return h('button', { class: 'tile', type: 'button', 'aria-label': `Foto ${f.n}${f.data.nota ? ': ' + f.data.nota : ''}`, onclick: () => Nav.push(() => FotoView(cant, grp, all, Math.max(0, all.indexOf(f)))) },
+              im, h('span', { class: 'num' }, f.n), f.data.nota ? h('span', { class: 'cap' }, h('span', null, f.data.nota)) : null);
+          }))));
+    });
+    timeline.replaceChildren(h('div', { class: 'card tl-card' }, head, h('div', { class: 'tl-list' }, items)));
+  }
+  async function load() {
+    piante = ((await Store.cachedList('pianta', cant.id)) || []).sort((a, b) => String(a.created).localeCompare(String(b.created)));
+    if (!sel) sel = piante[0];
+    if (!sel) { planBox.replaceChildren(h('div', { class: 'card empty' }, h('strong', null, 'Nessuna planimetria'), 'Carica una planimetria dalla scheda del cantiere.')); return; }
+    render();
+    data = await cantiereFotos(cant, false); render();
+    if (navigator.onLine) { try { data = await cantiereFotos(cant, true); render(); } catch (e) { console.error(e); } }
+  }
+  let loaded = false;
+  return { el, route: { c: cant.id }, onShow: () => { if (!loaded) { loaded = true; load(); } }, destroy: () => pv?.destroy() };
+}
+
 /* =====================================================================
    Dati di esempio (solo modalità prova) e avvio
    ===================================================================== */
@@ -1828,11 +2174,12 @@ function drawDemoPhoto(n, title, hue) {
   return canvasToBlob(c, 'image/jpeg', 0.85);
 }
 async function seedDemo() {
-  if (await IDB.get('kv', 'demoSeeded')) return;
+  if (await IDB.get('kv', 'demoSeeded2')) return;
+  if (await IDB.get('kv', 'demoSeeded')) return; // dati di prova già presenti: non li tocco (si rigenerano da Impostazioni)
   const c = await Local.create('cantiere', ROOT_ID, { nome: 'Esempio – Ristrutturazione appartamento', indirizzo: 'Indirizzo di prova', committente: 'Committente di prova', intestazione: CONFIG.INTESTAZIONE_DEFAULT, contatti: CONFIG.CONTATTI_DEFAULT });
   const pb = await drawDemoPlan();
   const p = await Local.create('pianta', c.id, { label: 'Piano terra (esempio)' }, pb);
-  const g = await Local.create('gruppo', c.id, { titolo: 'Sopralluogo impianti (esempio)', data: todayISO(), descrizione: 'Gruppo di prova creato per mostrare come funziona l\'app: punti sulla planimetria, direzione di ripresa, note e rapporto PDF. Puoi eliminarlo.' });
+  const g = await Local.create('gruppo', c.id, { titolo: 'Sopralluogo impianti (esempio)', data: (() => { const d = new Date(Date.now() - 7 * 864e5); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; })(), descrizione: 'Gruppo di prova creato per mostrare come funziona l\'app: punti sulla planimetria, direzione di ripresa, note e rapporto PDF. Puoi eliminarlo.' });
   const base = Date.now() - 3600 * 1000;
   const shots = [
     [0.33, 0.42, 90, 'Esempio: parete soggiorno, tracce impianto elettrico', 210],
@@ -1843,9 +2190,20 @@ async function seedDemo() {
   ];
   for (let i = 0; i < shots.length; i++) {
     const [px, py, ang, nota, hue] = shots[i];
-    await Local.create('foto', g.id, { taken: new Date(base + i * 240000).toISOString(), pianta: p.id, x: px, y: py, ang, nota, autore: CONFIG.INTESTAZIONE_DEFAULT }, await drawDemoPhoto(i + 1, nota.replace('Esempio: ', ''), hue));
+    await Local.create('foto', g.id, { num: i + 1, taken: new Date(base - 7 * 864e5 + i * 240000).toISOString(), pianta: p.id, x: px, y: py, ang, nota, autore: CONFIG.INTESTAZIONE_DEFAULT }, await drawDemoPhoto(i + 1, nota.replace('Esempio: ', ''), hue));
   }
-  await IDB.put('kv', 'demoSeeded', true);
+  // secondo sopralluogo negli stessi punti, per vedere lo storico
+  const d2 = new Date(); const g2 = await Local.create('gruppo', c.id, { titolo: 'Avanzamento lavori (esempio)', data: todayISO(), descrizione: 'Secondo sopralluogo di prova: foto scattate negli stessi punti per confrontare prima e dopo.' });
+  const shots2 = [
+    [0.335, 0.425, 90, 'Esempio: parete soggiorno, tracce chiuse e intonacate', 30],
+    [0.79, 0.285, 270, 'Esempio: bagno, nuovo scarico posato', 160],
+    [0.575, 0.27, 0, 'Esempio: cucina, attacchi spostati', 60],
+  ];
+  for (let i = 0; i < shots2.length; i++) {
+    const [px, py, ang, nota, hue] = shots2[i];
+    await Local.create('foto', g2.id, { num: shots.length + i + 1, taken: new Date(d2.getTime() - 3600e3 + i * 300000).toISOString(), pianta: p.id, x: px, y: py, ang, nota, autore: CONFIG.INTESTAZIONE_DEFAULT }, await drawDemoPhoto(shots.length + i + 1, nota.replace('Esempio: ', ''), hue));
+  }
+  await IDB.put('kv', 'demoSeeded2', true);
 }
 async function resetDemo() {
   for (const s of ['ents', 'queue', 'kv', 'blobs']) await IDB.clear(s);
