@@ -1,0 +1,30 @@
+{
+  "name": "Foto Cantiere",
+  "short_name": "Foto Cantiere",
+  "lang": "it",
+  "description": "Foto di cantiere con punto di ripresa sulla planimetria, gruppi, descrizioni e rapporto PDF.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#eef1f4",
+  "theme_color": "#1f4f8f",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

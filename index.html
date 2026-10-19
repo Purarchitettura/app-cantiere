@@ -1,0 +1,1694 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Foto Cantiere</title>
+<meta name="theme-color" content="#1f4f8f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Foto Cantiere">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>:root{padding-top:env(safe-area-inset-top,0px)}</style>
+</head>
+<body>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+/* Layout: strumento da cantiere — barra superiore fissa, colonna unica, barra azioni in basso a portata di pollice */
+:root {
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --surface-2: #f5f7f9;
+  --ink: #16202a;
+  --muted: #5a6673;
+  --line: #d6dce2;
+  --accent: #1f4f8f;
+  --accent-ink: #ffffff;
+  --accent-soft: #e2ebf6;
+  --signal: #f2b705;
+  --signal-ink: #1f1a08;
+  --ok: #2e7a4d;
+  --warn: #9a5a06;
+  --danger: #b3261e;
+  --danger-soft: #fbe9e7;
+  --overlay: rgba(12, 18, 24, .55);
+  --f-display: 'IBM Plex Sans Condensed', 'Arial Narrow', 'Roboto Condensed', system-ui, sans-serif;
+  --f-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --r: 10px;
+  --bar-h: 76px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f151b; --surface: #18212a; --surface-2: #1e2933; --ink: #e5eaef; --muted: #9aa6b2;
+    --line: #2c3844; --accent: #7aa9e8; --accent-ink: #0b1520; --accent-soft: #1d3150;
+    --signal: #f2b705; --signal-ink: #1f1a08; --ok: #5cbf86; --warn: #e3a447; --danger: #f08a80;
+    --danger-soft: #3a1f1d; --overlay: rgba(0, 0, 0, .65); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f151b; --surface: #18212a; --surface-2: #1e2933; --ink: #e5eaef; --muted: #9aa6b2;
+  --line: #2c3844; --accent: #7aa9e8; --accent-ink: #0b1520; --accent-soft: #1d3150;
+  --signal: #f2b705; --signal-ink: #1f1a08; --ok: #5cbf86; --warn: #e3a447; --danger: #f08a80;
+  --danger-soft: #3a1f1d; --overlay: rgba(0, 0, 0, .65); color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.45;
+  -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--surface); }
+button, input, select, textarea { font: inherit; color: inherit; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gut { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+/* Barra superiore */
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); }
+.bar-in { display: flex; align-items: center; gap: 8px; min-height: 56px; padding-block: 6px; }
+.bar-titles { flex: 1; min-width: 0; }
+.bar-title { font-family: var(--f-display); font-weight: 600; font-size: 20px; line-height: 1.15; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-sub { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon-btn { width: 40px; height: 40px; flex: none; display: inline-grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--ink); cursor: pointer; }
+.icon-btn:hover { background: var(--surface-2); }
+.icon-btn svg { width: 22px; height: 22px; }
+.sync { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface-2); border-radius: 999px; padding: 4px 10px 4px 8px; font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; flex: none; }
+.sync .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.sync[data-s="busy"] .dot { background: var(--accent); animation: pulse 1s infinite alternate; }
+.sync[data-s="offline"] .dot, .sync[data-s="auth"] .dot { background: var(--warn); }
+.sync[data-s="error"] .dot { background: var(--danger); }
+.sync[data-s="busy"], .sync[data-s="offline"], .sync[data-s="auth"], .sync[data-s="error"] { color: var(--ink); }
+@keyframes pulse { to { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .sync[data-s="busy"] .dot { animation: none; } }
+
+/* Contenuto */
+.main { padding-block: 16px calc(var(--bar-h) + 24px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 16px; max-width: 760px; margin: 0 auto; }
+.main.no-bar { padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+.section-label { font-family: var(--f-display); font-size: 12.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 4px 0 -8px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.list { display: grid; }
+.row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: transparent; border: 0; border-top: 1px solid var(--line); padding: 14px 14px; cursor: pointer; min-height: 64px; }
+.list > .row:first-child { border-top: 0; }
+.row:hover { background: var(--surface-2); }
+.row-main { flex: 1; min-width: 0; }
+.row-title { font-weight: 600; font-size: 16px; overflow-wrap: anywhere; }
+.row-sub { color: var(--muted); font-size: 13.5px; overflow-wrap: anywhere; }
+.row-meta { font-family: var(--f-mono); font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; }
+.row svg.chev { width: 18px; height: 18px; color: var(--muted); flex: none; }
+.row-thumb { width: 56px; height: 56px; border-radius: 6px; object-fit: cover; background: var(--surface-2); border: 1px solid var(--line); flex: none; }
+.tag { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .04em; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); vertical-align: 2px; margin-left: 6px; }
+.tag.wait { background: var(--surface-2); color: var(--warn); border: 1px solid var(--line); }
+.tag.err { background: var(--danger-soft); color: var(--danger); }
+.empty { padding: 28px 20px; text-align: center; color: var(--muted); display: grid; gap: 6px; justify-items: center; }
+.empty strong { color: var(--ink); font-size: 16px; }
+.notice { border: 1px solid var(--line); border-left: 4px solid var(--signal); background: var(--surface); padding: 10px 12px; border-radius: 8px; font-size: 13.5px; color: var(--muted); }
+.notice strong { color: var(--ink); }
+.notice.err { border-left-color: var(--danger); }
+.info-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; padding: 14px; font-size: 14px; }
+.info-grid dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; padding-top: 2px; }
+.info-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+
+/* Segmenti */
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; border-radius: 7px; padding: 9px 8px; font-weight: 600; font-size: 14px; color: var(--muted); cursor: pointer; display: inline-flex; gap: 6px; align-items: center; justify-content: center; }
+.seg button svg { width: 18px; height: 18px; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.chip { flex: none; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 7px 14px; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* Pulsanti */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-weight: 600; font-size: 15px; cursor: pointer; text-decoration: none; }
+.btn svg { width: 20px; height: 20px; flex: none; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.danger { color: var(--danger); }
+.btn.danger.solid { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.big { min-height: 54px; font-size: 16.5px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.small { min-height: 36px; padding: 0 12px; font-size: 13.5px; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-row .btn { flex: 1 1 auto; }
+
+.actionbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; background: var(--surface); border-top: 1px solid var(--line); padding-top: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+.actionbar-in { display: flex; gap: 10px; max-width: 760px; margin: 0 auto; }
+.actionbar-in .btn { flex: 1; }
+.actionbar-in .btn.grow { flex: 2.2; }
+
+/* Campi */
+.field { display: grid; gap: 5px; }
+.field > span { font-size: 12.5px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
+.field input, .field select, .field textarea { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 11px 12px; font-size: 16px; }
+.field textarea { min-height: 96px; resize: vertical; }
+.field small { color: var(--muted); font-size: 12px; }
+.check { display: flex; gap: 10px; align-items: center; font-size: 15px; }
+.check input { width: 20px; height: 20px; accent-color: var(--accent); }
+.form { display: grid; gap: 14px; }
+
+/* Griglia foto */
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+@media (min-width: 560px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.tile { position: relative; aspect-ratio: 1; max-width: 100%; border: 0; padding: 0; border-radius: 7px; overflow: hidden; background: var(--surface-2); cursor: pointer; }
+.tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tile .num { position: absolute; left: 5px; top: 5px; background: var(--signal); color: var(--signal-ink); font-family: var(--f-mono); font-weight: 600; font-size: 12px; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; display: grid; place-items: center; }
+.tile .state { position: absolute; right: 5px; top: 5px; width: 22px; height: 22px; border-radius: 50%; background: var(--surface); color: var(--warn); display: grid; place-items: center; }
+.tile .state svg { width: 14px; height: 14px; }
+.tile .state.err { color: var(--danger); }
+.tile .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 16px 6px 5px; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.75)); text-align: left; }
+.tile .cap span { font-size: 11.5px; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.sync.compact { padding: 0; width: 40px; height: 40px; justify-content: center; border: 0; background: transparent; }
+.sync.compact .txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.sync.compact .dot { width: 10px; height: 10px; }
+
+/* Planimetria */
+.plan { position: relative; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.plan-scroll { overflow: auto; height: var(--plan-h, 50vh); -webkit-overflow-scrolling: touch; display: grid; }
+.plan-stage { position: relative; margin: auto; line-height: 0; }
+.plan-stage img { width: 100%; display: block; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; background: #fff; }
+.plan-pins { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.plan-pins .hit { pointer-events: auto; cursor: pointer; }
+.plan-tools { position: absolute; right: 8px; bottom: 8px; display: grid; gap: 6px; }
+.plan-tools button { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 20px; font-weight: 600; cursor: pointer; display: grid; place-items: center; }
+.plan-tools button svg { width: 18px; height: 18px; }
+.plan-msg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 14px; padding: 20px; text-align: center; }
+.hint { font-size: 13.5px; color: var(--muted); display: flex; gap: 8px; align-items: flex-start; }
+.hint b { color: var(--ink); }
+.hint svg { width: 18px; height: 18px; flex: none; margin-top: 1px; color: var(--accent); }
+
+.strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.strip .tile { width: 72px; flex: none; }
+
+/* Foto singola */
+.photo-wrap { background: #0b0f13; border-radius: var(--r); overflow: hidden; display: grid; place-items: center; min-height: 200px; }
+.photo-wrap img { width: 100%; max-height: 70vh; object-fit: contain; display: block; }
+.pager { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pager .pos { font-family: var(--f-mono); font-size: 13px; color: var(--muted); }
+
+/* Finestre */
+.modal-back { position: fixed; inset: 0; z-index: 50; background: var(--overlay); display: grid; align-items: end; justify-items: center; }
+@media (min-width: 600px) { .modal-back { align-items: center; } }
+.modal { width: 100%; max-width: 520px; max-height: 92vh; overflow-y: auto; background: var(--surface); border-radius: 16px 16px 0 0; padding: 20px max(18px, env(safe-area-inset-right, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)) max(18px, env(safe-area-inset-left, 0px)); display: grid; gap: 14px; }
+@media (min-width: 600px) { .modal { border-radius: 16px; } }
+.modal-title { font-family: var(--f-display); font-weight: 600; font-size: 20px; margin: 0; text-wrap: balance; }
+.modal-text { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.modal-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.modal-actions .btn { flex: 1 1 140px; }
+.sheet-list { display: grid; gap: 4px; }
+.sheet-list .btn { justify-content: flex-start; border-color: transparent; background: var(--surface-2); }
+
+.toasts { position: fixed; left: 0; right: 0; bottom: calc(var(--bar-h) + 16px + env(safe-area-inset-bottom, 0px)); z-index: 60; display: grid; justify-items: center; gap: 6px; pointer-events: none; padding: 0 16px; }
+.toast { background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px; max-width: 480px; box-shadow: 0 6px 20px rgba(0,0,0,.25); transition: opacity .3s, transform .3s; }
+.toast.err { background: var(--danger); color: #fff; }
+.toast.out { opacity: 0; transform: translateY(6px); }
+
+/* Accesso */
+.login { min-height: 100vh; display: grid; place-items: center; padding-block: 32px; }
+.login-box { width: 100%; max-width: 420px; display: grid; gap: 18px; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-mark { width: 52px; height: 52px; border-radius: 12px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; }
+.brand-mark svg { width: 30px; height: 30px; }
+.brand h1 { font-family: var(--f-display); font-size: 28px; margin: 0; line-height: 1.05; }
+.brand p { margin: 0; color: var(--muted); font-size: 14px; }
+.spin { width: 28px; height: 28px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: rot .8s linear infinite; margin: 24px auto; }
+@keyframes rot { to { transform: rotate(360deg); } }
+.progress { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.progress > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.queue-item { display: grid; gap: 4px; padding: 12px 14px; border-top: 1px solid var(--line); font-size: 14px; }
+.queue-item:first-child { border-top: 0; }
+.queue-item .err { color: var(--danger); font-size: 13px; overflow-wrap: anywhere; }
+
+.btn.waiting { opacity: .55; }
+.hint.flash { animation: flash .9s 2; }
+@keyframes flash { 50% { background: var(--accent-soft); color: var(--ink); } }
+@media (prefers-reduced-motion: reduce) { .hint.flash { animation: none; } }
+
+</style>
+<div id="app"></div><div id="toasts" class="toasts" aria-live="polite"></div>
+<script>
+'use strict';
+/* =====================================================================
+   CONFIGURAZIONE — da compilare prima della pubblicazione (vedi LEGGIMI)
+   Se CLIENT_ID o ROOT_FOLDER_ID sono vuoti l'app parte in MODALITÀ PROVA:
+   tutto resta sul dispositivo e non serve alcun account.
+   ===================================================================== */
+const CONFIG = {
+  CLIENT_ID: '',            // ID client OAuth di Google Cloud (es. 1234-abcd.apps.googleusercontent.com)
+  ROOT_FOLDER_ID: '',       // ID della cartella Google Drive che fa da archivio
+  REDIRECT_URI: '',         // vuoto = indirizzo della pagina; deve coincidere con quello registrato su Google Cloud
+  ALLOWED_EMAILS: [],       // facoltativo: elenco email ammesse, es. ['geometrailariocorro@gmail.com']
+  INTESTAZIONE_DEFAULT: 'Geom. Ilario Corrò',
+  CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
+};
+const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
+const ROOT_ID = MODE === 'drive' ? CONFIG.ROOT_FOLDER_ID : 'root';
+const IN_ARTIFACT = !!(window.claude && typeof window.claude.use === 'function');
+const TMP = 'tmp~';
+let READONLY = false;
+
+/* ---------- utilità ---------- */
+{ const rc = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function (...k) { return rc.apply(this, k.filter(x => x != null && x !== false)); }; }
+const $ = (sel, root = document) => root.querySelector(sel);
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k === 'text') el.textContent = v;
+    else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
+    else if (k === 'style') el.style.cssText = v;
+    else if (k === 'value') el.value = v;
+    else if (k.startsWith('aria-')) el.setAttribute(k, String(v));
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat(Infinity)) {
+    if (c == null || c === false) continue;
+    el.append(c.nodeType ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+const SVGNS = 'http://www.w3.org/2000/svg';
+function sv(tag, attrs, ...kids) {
+  const el = document.createElementNS(SVGNS, tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) if (v != null) el.setAttribute(k, v);
+  for (const c of kids.flat()) if (c != null) el.append(c.nodeType ? c : document.createTextNode(String(c)));
+  return el;
+}
+const ICONS = {
+  back: 'M15 5l-7 7 7 7', chev: 'M9 5l7 7-7 7', left: 'M15 5l-7 7 7 7', right: 'M9 5l7 7-7 7',
+  gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 13.2a7.6 7.6 0 0 0 0-2.4l2-1.5-2-3.5-2.4 1a7.2 7.2 0 0 0-2-1.2L14.6 3h-4l-.4 2.6a7.2 7.2 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5a7.6 7.6 0 0 0 0 2.4l-2 1.5 2 3.5 2.4-1a7.2 7.2 0 0 0 2 1.2l.4 2.6h4l.4-2.6a7.2 7.2 0 0 0 2-1.2l2.4 1 2-3.5z',
+  camera: 'M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z M12 16.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z',
+  image: 'M4 5h16v14H4z M4 16l5-5 4 4 2-2 5 5 M15.5 8.5h.01',
+  plus: 'M12 5v14 M5 12h14', more: 'M5 12h.01 M12 12h.01 M19 12h.01',
+  file: 'M7 3h7l5 5v13H7z M14 3v5h5 M10 13h6 M10 17h6', trash: 'M5 7h14 M10 7V4h4v3 M7 7l1 13h8l1-13',
+  share: 'M12 3v12 M8 7l4-4 4 4 M5 12v8h14v-8', download: 'M12 4v11 M7 10l5 5 5-5 M5 20h14',
+  pin: 'M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z M12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
+  compass: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M15.5 8.5l-2 5-5 2 2-5z',
+  clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 7v5l3 2', alert: 'M12 4l9 16H3z M12 10v4 M12 17h.01',
+  grid: 'M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z', map: 'M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14 M15 6v14',
+  edit: 'M4 20h4L19 9l-4-4L4 16z', fit: 'M4 9V4h5 M20 9V4h-5 M4 15v5h5 M20 15v5h-5', x: 'M6 6l12 12 M18 6L6 18',
+  check: 'M5 12.5l4.5 4.5L19 7.5', cloud: 'M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.4 1.5A3.3 3.3 0 0 0 7 18z',
+};
+function icon(name, cls) {
+  return sv('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': name === 'more' ? 3 : 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', class: cls || null },
+    sv('path', { d: ICONS[name] }));
+}
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const pad = n => String(n).padStart(2, '0');
+function todayISO() { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+function fmtDay(ymd) { if (!ymd) return ''; const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd); return m ? `${m[3]}/${m[2]}/${m[1]}` : ymd; }
+function fmtDateTime(iso) { const d = new Date(iso); if (isNaN(d)) return ''; return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function slug(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'senza_nome'; }
+function rangeLabel(nums) {
+  const a = [...nums].sort((x, y) => x - y); const out = [];
+  for (let i = 0; i < a.length; i++) {
+    let j = i; while (j + 1 < a.length && a[j + 1] === a[j] + 1) j++;
+    out.push(j > i + 1 ? `${a[i]}-${a[j]}` : j === i + 1 ? `${a[i]}, ${a[j]}` : `${a[i]}`); i = j;
+  }
+  return out.join(', ');
+}
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    if ([...document.scripts].some(s => s.src === src)) return res();
+    const s = document.createElement('script'); s.src = src; s.onload = () => res(); s.onerror = () => rej(new Error('Impossibile caricare ' + src));
+    document.head.append(s);
+  });
+}
+
+/* ---------- impostazioni locali ---------- */
+const Settings = {
+  def: { firma: '', latoMax: 2048, qualita: 0.85, perPage: 4 },
+  get() { try { return { ...this.def, ...JSON.parse(localStorage.getItem('fc_settings') || '{}') }; } catch { return { ...this.def }; } },
+  set(patch) { const v = { ...this.get(), ...patch }; try { localStorage.setItem('fc_settings', JSON.stringify(v)); } catch {} return v; },
+  lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+
+/* ---------- archivio sul dispositivo (IndexedDB, con ripiego in memoria) ---------- */
+const IDB = (() => {
+  const STORES = ['kv', 'blobs', 'queue', 'ents'];
+  const mem = Object.fromEntries(STORES.map(s => [s, new Map()]));
+  let dbp = null;
+  function open() {
+    if (!dbp) dbp = new Promise(res => {
+      try {
+        const r = indexedDB.open('foto-cantiere', 1);
+        r.onupgradeneeded = () => { for (const n of STORES) if (!r.result.objectStoreNames.contains(n)) r.result.createObjectStore(n); };
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => res(null);
+      } catch { res(null); }
+    });
+    return dbp;
+  }
+  const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  async function run(store, mode, fn) {
+    const d = await open();
+    if (!d) return fn(null);
+    const t = d.transaction(store, mode);
+    const done = new Promise((res, rej) => { t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error('Transazione annullata')); });
+    const out = await fn(t.objectStore(store));
+    await done;
+    return out;
+  }
+  const sortEntries = arr => arr.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  return {
+    get: (st, k) => run(st, 'readonly', os => os ? req(os.get(k)) : mem[st].get(k)),
+    put: (st, k, v) => run(st, 'readwrite', os => os ? req(os.put(v, k)) : void mem[st].set(k, v)),
+    del: (st, k) => run(st, 'readwrite', os => os ? req(os.delete(k)) : void mem[st].delete(k)),
+    clear: st => run(st, 'readwrite', os => os ? req(os.clear()) : void mem[st].clear()),
+    all: st => run(st, 'readonly', os => {
+      if (!os) return sortEntries([...mem[st].entries()]);
+      return new Promise((res, rej) => {
+        const out = []; const c = os.openCursor();
+        c.onsuccess = () => { const cur = c.result; if (cur) { out.push([cur.key, cur.value]); cur.continue(); } else res(out); };
+        c.onerror = () => rej(c.error);
+      });
+    }),
+    keys: st => run(st, 'readonly', os => os ? req(os.getAllKeys()) : [...mem[st].keys()]),
+  };
+})();
+
+/* ---------- immagini ---------- */
+async function decodeImage(blob) {
+  if ('createImageBitmap' in window) { try { return await createImageBitmap(blob, { imageOrientation: 'from-image' }); } catch {} }
+  return new Promise((res, rej) => {
+    const u = URL.createObjectURL(blob); const im = new Image();
+    im.onload = () => { res(im); setTimeout(() => URL.revokeObjectURL(u), 2000); };
+    im.onerror = () => { URL.revokeObjectURL(u); rej(new Error('Immagine non leggibile. Usa un file JPG o PNG.')); };
+    im.src = u;
+  });
+}
+const imgSize = im => ({ w: im.naturalWidth || im.width, h: im.naturalHeight || im.height });
+function canvasToBlob(c, type = 'image/jpeg', q = 0.85) { return new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('Conversione immagine non riuscita')), type, q)); }
+async function resizeToJpeg(blob, maxSide, q = 0.85) {
+  const im = await decodeImage(blob); const { w, h: hh } = imgSize(im);
+  const s = Math.min(1, maxSide / Math.max(w, hh)); const cw = Math.max(1, Math.round(w * s)), ch = Math.max(1, Math.round(hh * s));
+  const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, cw, ch); x.drawImage(im, 0, 0, cw, ch); if (im.close) im.close();
+  return { blob: await canvasToBlob(c, 'image/jpeg', q), w: cw, h: ch };
+}
+const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+async function pdfPageToJpeg(file, askPage) {
+  await loadScript(PDFJS); await loadScript(PDFJS_WORKER);
+  const lib = window.pdfjsLib; if (!lib) throw new Error('Lettore PDF non disponibile');
+  const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  let n = 1;
+  if (doc.numPages > 1) { n = await askPage(doc.numPages); if (!n) return null; }
+  const page = await doc.getPage(n);
+  const v1 = page.getViewport({ scale: 1 });
+  const vp = page.getViewport({ scale: Math.min(5, 3200 / Math.max(v1.width, v1.height)) });
+  const c = document.createElement('canvas'); c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  return canvasToBlob(c, 'image/jpeg', 0.9);
+}
+
+/* ---------- accesso Google (flusso a reindirizzamento, funziona anche da app installata) ---------- */
+const Auth = {
+  tok: null, exp: 0, user: null,
+  load() { try { const o = JSON.parse(localStorage.getItem('fc_auth') || 'null'); if (o) Object.assign(this, { tok: o.tok, exp: o.exp, user: o.user }); } catch {} },
+  save() { try { localStorage.setItem('fc_auth', JSON.stringify({ tok: this.tok, exp: this.exp, user: this.user })); } catch {} },
+  valid() { return !!this.tok && Date.now() < this.exp - 60000; },
+  async token() { if (this.valid()) return this.tok; const e = new Error('Accesso scaduto: accedi di nuovo per caricare'); e.authNeeded = true; throw e; },
+  redirectUri() { return CONFIG.REDIRECT_URI || (location.origin + location.pathname.replace(/index\.html$/, '')); },
+  start() {
+    const state = uid(); Settings.lsSet('fc_oauth_state', state);
+    const p = new URLSearchParams({ client_id: CONFIG.CLIENT_ID, redirect_uri: this.redirectUri(), response_type: 'token', scope: 'https://www.googleapis.com/auth/drive', include_granted_scopes: 'true', state, prompt: this.user ? '' : 'select_account' });
+    if (this.user?.email) p.set('login_hint', this.user.email);
+    if (!this.user) p.delete('login_hint');
+    if (!p.get('prompt')) p.delete('prompt');
+    location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + p.toString());
+  },
+  readRedirect() {
+    if (!location.hash || !/access_token=|error=/.test(location.hash)) return null;
+    const p = new URLSearchParams(location.hash.slice(1));
+    history.replaceState(null, '', location.pathname + location.search);
+    if (p.get('error')) return { error: p.get('error') === 'access_denied' ? 'Accesso annullato.' : 'Accesso non riuscito: ' + p.get('error') };
+    if (p.get('state') !== Settings.lsGet('fc_oauth_state')) return { error: 'Risposta di accesso non valida. Riprova.' };
+    this.tok = p.get('access_token'); this.exp = Date.now() + (+p.get('expires_in') || 3600) * 1000; this.save();
+    return { ok: true };
+  },
+  signOut() {
+    if (this.tok) fetch('https://oauth2.googleapis.com/revoke?token=' + encodeURIComponent(this.tok), { method: 'POST' }).catch(() => {});
+    this.tok = null; this.exp = 0; this.user = null; try { localStorage.removeItem('fc_auth'); } catch {}
+  },
+};
+
+/* ---------- archivio Google Drive ---------- */
+const API = 'https://www.googleapis.com/drive/v3', UPL = 'https://www.googleapis.com/upload/drive/v3';
+const Drive = {
+  FIELDS: 'id,name,description,createdTime,modifiedTime,parents',
+  async f(url, opts = {}) {
+    const tok = await Auth.token(); let r;
+    try { r = await fetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + tok } }); }
+    catch { const e = new Error('Connessione assente'); e.offline = true; throw e; }
+    if (r.status === 401) { Auth.tok = null; Auth.save(); const e = new Error('Accesso scaduto'); e.authNeeded = true; throw e; }
+    if (!r.ok) {
+      let msg = ''; try { msg = (await r.json()).error?.message || ''; } catch {}
+      const e = new Error(r.status === 403 || r.status === 404 ? `Permesso negato da Google Drive${msg ? ' (' + msg + ')' : ''}` : `Google Drive ha risposto ${r.status}${msg ? ': ' + msg : ''}`);
+      e.status = r.status; if (r.status >= 500 || r.status === 429) e.offline = true; throw e;
+    }
+    return r;
+  },
+  toEnt(f, kind, parentId) { let data = {}; try { data = JSON.parse(f.description || '{}'); } catch {} return { id: f.id, kind, parentId: parentId || (f.parents && f.parents[0]), data, created: f.createdTime, modified: f.modifiedTime }; },
+  nameFor(kind, d) {
+    switch (kind) {
+      case 'cantiere': return d.nome || 'Cantiere';
+      case 'gruppo': return `${d.data || ''} ${d.titolo || ''}`.trim();
+      case 'pianta': return `Planimetria - ${d.label || ''}.jpg`;
+      case 'foto': { const t = new Date(d.taken); return isNaN(t) ? 'Foto.jpg' : `Foto ${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())} ${pad(t.getHours())}.${pad(t.getMinutes())}.${pad(t.getSeconds())}.jpg`; }
+      default: return d.nome || 'file';
+    }
+  },
+  async list(kind, parentId) {
+    const q = `'${parentId}' in parents and trashed=false and appProperties has { key='fc' and value='${kind}' }`;
+    const out = []; let pt = '';
+    do {
+      const u = `${API}/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent('nextPageToken,files(' + this.FIELDS + ')')}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true${pt ? '&pageToken=' + encodeURIComponent(pt) : ''}`;
+      const j = await (await this.f(u)).json();
+      out.push(...(j.files || []).map(f => this.toEnt(f, kind, parentId))); pt = j.nextPageToken || '';
+    } while (pt);
+    return out;
+  },
+  async create(kind, parentId, data, blob) {
+    const meta = { name: this.nameFor(kind, data), parents: [parentId], description: JSON.stringify(data), appProperties: { fc: kind } };
+    const fields = '&fields=' + encodeURIComponent(this.FIELDS);
+    let r;
+    if (!blob) {
+      meta.mimeType = 'application/vnd.google-apps.folder';
+      r = await this.f(`${API}/files?supportsAllDrives=true${fields}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(meta) });
+    } else {
+      const b = 'fcb' + uid();
+      const body = new Blob([`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: ${blob.type || 'application/octet-stream'}\r\n\r\n`, blob, `\r\n--${b}--`]);
+      r = await this.f(`${UPL}/files?uploadType=multipart&supportsAllDrives=true${fields}`, { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + b }, body });
+    }
+    return this.toEnt(await r.json(), kind, parentId);
+  },
+  async update(kind, id, data) {
+    const r = await this.f(`${API}/files/${id}?supportsAllDrives=true&fields=${encodeURIComponent(this.FIELDS)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: this.nameFor(kind, data), description: JSON.stringify(data) }) });
+    return this.toEnt(await r.json(), kind);
+  },
+  async remove(kind, id) { await this.f(`${API}/files/${id}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) }); },
+  async getBlob(id) { return (await this.f(`${API}/files/${id}?alt=media&supportsAllDrives=true`)).blob(); },
+  async whoami() { const j = await (await this.f(`${API}/about?fields=user(displayName,emailAddress)`)).json(); return { name: j.user?.displayName || '', email: (j.user?.emailAddress || '').toLowerCase() }; },
+  async rootInfo() {
+    try { return await (await this.f(`${API}/files/${CONFIG.ROOT_FOLDER_ID}?supportsAllDrives=true&fields=id,name,capabilities(canAddChildren)`)).json(); }
+    catch (e) { if (e.status === 403 || e.status === 404) return null; throw e; }
+  },
+};
+
+/* ---------- archivio di prova (tutto sul dispositivo) ---------- */
+const Local = {
+  async list(kind, parentId) { return (await IDB.all('ents')).map(e => e[1]).filter(e => e.kind === kind && e.parentId === parentId); },
+  async create(kind, parentId, data, blob) {
+    const now = new Date().toISOString(); const e = { id: 'L' + uid(), kind, parentId, data, created: now, modified: now };
+    if (blob) await IDB.put('blobs', 'f:' + e.id, blob);
+    await IDB.put('ents', e.id, e); return e;
+  },
+  async update(kind, id, data) { const e = await IDB.get('ents', id); if (!e) throw new Error('Elemento non trovato'); e.data = data; e.modified = new Date().toISOString(); await IDB.put('ents', id, e); return e; },
+  async remove(kind, id) {
+    const all = (await IDB.all('ents')).map(x => x[1]);
+    const kill = async pid => { for (const c of all.filter(x => x.parentId === pid)) await kill(c.id); await IDB.del('ents', pid); await IDB.del('blobs', 'f:' + pid); };
+    await kill(id);
+  },
+  async getBlob(id) { const b = await IDB.get('blobs', 'f:' + id); if (!b) throw new Error('File non trovato'); return b; },
+};
+
+/* ---------- Store: cache, coda dei caricamenti, lavoro senza rete ---------- */
+const Store = {
+  backend: null, idmap: {}, listeners: new Set(), urls: new Map(), forceOffline: false,
+  status: { pending: 0, fotoPending: 0, net: 'ok', running: false, error: null },
+  async init() {
+    this.backend = MODE === 'drive' ? Drive : Local;
+    this.idmap = (await IDB.get('kv', 'idmap')) || {};
+    await this.refreshStatus();
+    addEventListener('online', () => this.kick());
+    setInterval(() => { if (this.status.pending && !this.status.error) this.kick(); }, 20000);
+    this.kick();
+  },
+  on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
+  emit() { for (const f of this.listeners) { try { f(); } catch (e) { console.error(e); } } },
+  isTemp(id) { return typeof id === 'string' && id.startsWith(TMP); },
+  resolve(id) { let x = id, n = 0; while (x && this.idmap[x] && n++ < 6) x = this.idmap[x]; return x; },
+  same(a, b) { return a != null && b != null && this.resolve(a) === this.resolve(b); },
+  resolveRefs(d) { const o = {}; for (const [k, v] of Object.entries(d || {})) o[k] = this.isTemp(v) ? this.resolve(v) : v; return o; },
+  net(fn) { if (this.forceOffline) { const e = new Error('Connessione assente (simulata)'); e.offline = true; return Promise.reject(e); } return fn(); },
+  noteNet(e) { this.status.net = e.authNeeded ? 'auth' : 'offline'; },
+  async ops() { return (await IDB.all('queue')).map(x => x[1]); },
+
+  async cachedList(kind, parentId) {
+    const p = this.resolve(parentId);
+    const items = this.isTemp(p) ? [] : await IDB.get('kv', `list:${kind}:${p}`);
+    return items ? this.overlay(kind, parentId, items) : null;
+  },
+  async list(kind, parentId) {
+    const p = this.resolve(parentId); let items = [];
+    if (!this.isTemp(p)) {
+      try {
+        items = await this.net(() => this.backend.list(kind, p));
+        await IDB.put('kv', `list:${kind}:${p}`, items);
+        if (this.status.net !== 'ok') { this.status.net = 'ok'; this.kick(); }
+      } catch (e) {
+        if (!(e.offline || e.authNeeded)) throw e;
+        this.noteNet(e); this.emit();
+        items = (await IDB.get('kv', `list:${kind}:${p}`)) || [];
+      }
+    }
+    return this.overlay(kind, parentId, items);
+  },
+  async overlay(kind, parentId, items) {
+    items = items.map(e => ({ ...e, data: { ...e.data } }));
+    for (const op of await this.ops()) {
+      if (op.kind !== kind) continue;
+      if (op.type === 'create' && this.same(op.parentId, parentId)) {
+        if (!items.some(i => this.same(i.id, op.tempId))) items.push({ id: op.tempId, kind, parentId: op.parentId, data: { ...op.data }, created: op.time, modified: op.time, pending: true, error: op.error || null });
+      } else if (op.type === 'update') {
+        const it = items.find(i => this.same(i.id, op.id)); if (it) { it.data = { ...op.data }; it.pending = true; it.error = op.error || null; }
+      } else if (op.type === 'remove') {
+        items = items.filter(i => !this.same(i.id, op.id));
+      }
+    }
+    return items;
+  },
+
+  seq: 0,
+  async enqueue(op) {
+    op.key = Date.now().toString(36).padStart(10, '0') + (++this.seq).toString(36).padStart(4, '0');
+    op.time = new Date().toISOString();
+    await IDB.put('queue', op.key, op);
+    await this.refreshStatus(); this.emit(); this.kick();
+    return op;
+  },
+  async findCreateOp(id) { return (await this.ops()).find(o => o.type === 'create' && o.tempId === id); },
+  async create(kind, parentId, data, blob) {
+    const tempId = TMP + uid();
+    if (blob) await IDB.put('blobs', 'q:' + tempId, blob);
+    await this.enqueue({ type: 'create', kind, parentId, tempId, data, hasBlob: !!blob });
+    return { id: tempId, kind, parentId, data, created: new Date().toISOString(), pending: true };
+  },
+  async update(ent, patch) {
+    const data = { ...ent.data, ...patch };
+    const cop = this.isTemp(this.resolve(ent.id)) ? await this.findCreateOp(ent.id) : null;
+    if (cop) { cop.data = data; await IDB.put('queue', cop.key, cop); this.emit(); }
+    else await this.enqueue({ type: 'update', kind: ent.kind, id: ent.id, data });
+    ent.data = data; return ent;
+  },
+  async remove(ent) {
+    const cop = this.isTemp(this.resolve(ent.id)) ? await this.findCreateOp(ent.id) : null;
+    if (cop) { await IDB.del('queue', cop.key); await IDB.del('blobs', 'q:' + cop.tempId); await this.refreshStatus(); this.emit(); }
+    else await this.enqueue({ type: 'remove', kind: ent.kind, id: ent.id });
+  },
+
+  async getBlob(ent) {
+    const id = ent.id, r = this.resolve(id);
+    for (const k of ['q:' + id, 'c:' + r]) { const b = await IDB.get('blobs', k); if (b) return b; }
+    const b = await this.limit(() => this.net(() => this.backend.getBlob(r)));
+    IDB.put('blobs', 'c:' + r, b).catch(() => {});
+    return b;
+  },
+  active: 0, waiting: [],
+  async limit(fn) {
+    if (this.active >= 4) await new Promise(res => this.waiting.push(res));
+    this.active++;
+    try { return await fn(); } finally { this.active--; const n = this.waiting.shift(); if (n) n(); }
+  },
+  async thumbURL(ent) {
+    const key = 't:' + this.resolve(ent.id);
+    if (this.urls.has(key)) return this.urls.get(key);
+    let t = await IDB.get('blobs', key);
+    if (!t) { t = (await resizeToJpeg(await this.getBlob(ent), 420, 0.78)).blob; IDB.put('blobs', key, t).catch(() => {}); }
+    const u = URL.createObjectURL(t); this.urls.set(key, u); return u;
+  },
+  async fullURL(ent) {
+    const key = 'u:' + this.resolve(ent.id);
+    if (this.urls.has(key)) return this.urls.get(key);
+    const u = URL.createObjectURL(await this.getBlob(ent)); this.urls.set(key, u); return u;
+  },
+  async putThumb(ent, blob) { const t = (await resizeToJpeg(blob, 420, 0.78)).blob; await IDB.put('blobs', 't:' + ent.id, t); },
+
+  running: false, again: false,
+  async kick() {
+    if (this.running) { this.again = true; return; }
+    this.running = true; this.status.running = true; this.emit();
+    try { do { this.again = false; await this.process(); } while (this.again); }
+    catch (e) { console.error(e); }
+    finally { this.running = false; this.status.running = false; await this.refreshStatus(); this.emit(); }
+  },
+  async process() {
+    for (const op of await this.ops()) {
+      if (op.error) return;
+      try {
+        await this.net(() => this.runOp(op));
+        await IDB.del('queue', op.key);
+        this.status.net = 'ok';
+        await this.refreshStatus(); this.emit();
+      } catch (e) {
+        if (e.offline || e.authNeeded) { this.noteNet(e); return; }
+        console.error(e);
+        op.error = e.message || String(e); await IDB.put('queue', op.key, op); return;
+      }
+    }
+  },
+  async runOp(op) {
+    const B = this.backend;
+    if (op.type === 'create') {
+      const parent = this.resolve(op.parentId);
+      if (this.isTemp(parent)) { await IDB.del('blobs', 'q:' + op.tempId); return; } // genitore eliminato prima del caricamento
+      let blob = null;
+      if (op.hasBlob) { blob = await IDB.get('blobs', 'q:' + op.tempId); if (!blob) throw new Error('Il file da caricare non è più sul telefono'); }
+      const ent = await B.create(op.kind, parent, this.resolveRefs(op.data), blob);
+      this.idmap[op.tempId] = ent.id; await IDB.put('kv', 'idmap', this.idmap);
+      if (blob) { await IDB.put('blobs', 'c:' + ent.id, blob); await IDB.del('blobs', 'q:' + op.tempId); }
+      const t = await IDB.get('blobs', 't:' + op.tempId);
+      if (t) { await IDB.put('blobs', 't:' + ent.id, t); await IDB.del('blobs', 't:' + op.tempId); }
+      const ck = `list:${op.kind}:${parent}`; const cl = (await IDB.get('kv', ck)) || [];
+      cl.push(ent); await IDB.put('kv', ck, cl);
+    } else if (op.type === 'update') {
+      const id = this.resolve(op.id); if (this.isTemp(id)) return;
+      const ent = await B.update(op.kind, id, this.resolveRefs(op.data));
+      await this.patchCache(op.kind, id, list => list.map(i => i.id === id ? { ...i, data: ent.data, modified: ent.modified } : i));
+    } else if (op.type === 'remove') {
+      const id = this.resolve(op.id); if (this.isTemp(id)) return;
+      try { await B.remove(op.kind, id); }
+      catch (e) { if (e.status === 403) throw new Error('Google Drive non permette di eliminare questo elemento: in una cartella condivisa può eliminarlo solo chi lo ha caricato o il proprietario della cartella.'); throw e; }
+      await this.patchCache(op.kind, id, list => list.filter(i => i.id !== id));
+    }
+  },
+  async patchCache(kind, id, fn) {
+    for (const [k, v] of await IDB.all('kv')) {
+      if (k.startsWith(`list:${kind}:`) && Array.isArray(v) && v.some(i => i.id === id)) await IDB.put('kv', k, fn(v));
+    }
+  },
+  async retry(op) { delete op.error; await IDB.put('queue', op.key, op); await this.refreshStatus(); this.emit(); this.kick(); },
+  async discard(op) { await IDB.del('queue', op.key); if (op.tempId) await IDB.del('blobs', 'q:' + op.tempId); await this.refreshStatus(); this.emit(); this.kick(); },
+  async refreshStatus() {
+    const ops = await this.ops();
+    this.status.pending = ops.length;
+    this.status.fotoPending = ops.filter(o => o.type === 'create' && o.kind === 'foto').length;
+    this.status.error = ops.find(o => o.error)?.error || null;
+  },
+  async clearCache() {
+    for (const k of await IDB.keys('blobs')) if (/^[ct]:/.test(k)) await IDB.del('blobs', k);
+    for (const u of this.urls.values()) URL.revokeObjectURL(u);
+    this.urls.clear();
+  },
+};
+
+/* ---------- foto: numerazione e punti ---------- */
+function numberFotos(fotos) {
+  const sorted = [...fotos].sort((a, b) => String(a.data.taken || a.created).localeCompare(String(b.data.taken || b.created)) || String(a.created).localeCompare(String(b.created)));
+  sorted.forEach((f, i) => { f.n = i + 1; });
+  return sorted;
+}
+function groupPoints(fotos, piantaId) {
+  const m = new Map();
+  for (const f of fotos) {
+    const d = f.data;
+    if (!d.pianta || !Store.same(d.pianta, piantaId) || d.x == null || d.y == null) continue;
+    const k = `${(+d.x).toFixed(4)}|${(+d.y).toFixed(4)}`;
+    if (!m.has(k)) m.set(k, { x: +d.x, y: +d.y, nums: [], fotos: [], dirs: new Map() });
+    const g = m.get(k); g.nums.push(f.n); g.fotos.push(f);
+    if (d.ang != null && d.ang !== '') { const a = Math.round(+d.ang); if (!g.dirs.has(a)) g.dirs.set(a, []); g.dirs.get(a).push(f.n); }
+  }
+  return [...m.values()].map(g => ({ ...g, label: rangeLabel(g.nums), dirs: [...g.dirs.entries()].map(([ang, nums]) => ({ ang, label: rangeLabel(nums) })) }));
+}
+
+/* =====================================================================
+   Generatore PDF interno (nessuna libreria esterna, funziona offline)
+   Font standard Helvetica con codifica WinAnsi (lettere accentate italiane incluse)
+   ===================================================================== */
+const HELV_W = {
+  r: [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584],
+  b: [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584],
+};
+const WIN_SPECIAL = { '€': 0x80, '‚': 0x82, '„': 0x84, '…': 0x85, '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94, '•': 0x95, '–': 0x96, '—': 0x97 };
+const SPECIAL_W = { '€': [556, 556], '…': [1000, 1000], '‘': [222, 278], '’': [222, 278], '“': [333, 500], '”': [333, 500], '•': [350, 350], '–': [556, 556], '—': [1000, 1000], '°': [400, 400], '·': [278, 278], '«': [556, 556], '»': [556, 556], 'ì': [278, 278], 'í': [278, 278], 'î': [278, 278], 'ï': [278, 278] };
+function pdfClean(s) { return String(s ?? '').replace(/\r\n?/g, '\n').replace(/\t/g, ' ').replace(/[\u2028\u2029]/g, '\n').replace(/[\u200b-\u200f\ufeff]/g, ''); }
+function charW(ch, bold) {
+  const sp = SPECIAL_W[ch]; if (sp) return sp[bold ? 1 : 0];
+  let c = ch.charCodeAt(0);
+  if (c >= 32 && c <= 126) return HELV_W[bold ? 'b' : 'r'][c - 32];
+  const base = ch.normalize('NFD')[0]; c = base.charCodeAt(0);
+  if (base !== ch && c >= 32 && c <= 126) return HELV_W[bold ? 'b' : 'r'][c - 32];
+  return 556;
+}
+function encWin(str) {
+  const out = [];
+  for (const ch of str) {
+    const c = ch.charCodeAt(0);
+    if (WIN_SPECIAL[ch]) out.push(WIN_SPECIAL[ch]);
+    else if ((c >= 32 && c <= 126) || (c >= 160 && c <= 255)) out.push(c);
+    else out.push(63);
+  }
+  return out;
+}
+function jpegInfo(bytes) {
+  let i = 2;
+  while (i < bytes.length) {
+    if (bytes[i] !== 0xFF) { i++; continue; }
+    const m = bytes[i + 1];
+    if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) return { h: (bytes[i + 5] << 8) | bytes[i + 6], w: (bytes[i + 7] << 8) | bytes[i + 8], nc: bytes[i + 9] };
+    i += 2 + ((bytes[i + 2] << 8) | bytes[i + 3]);
+  }
+  throw new Error('Immagine JPEG non valida');
+}
+
+class PDFDoc {
+  constructor(title) { this.pages = []; this.images = []; this.W = 210; this.H = 297; this.k = 72 / 25.4; this.title = title || ''; }
+  addPage() { const p = { ops: [] }; this.pages.push(p); this.p = p; return p; }
+  X(mm) { return (mm * this.k).toFixed(2); }
+  Y(mm) { return ((this.H - mm) * this.k).toFixed(2); }
+  rgb(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v => (v / 255).toFixed(3)).join(' '); }
+  width(str, size, bold) { let w = 0; for (const ch of pdfClean(str)) w += charW(ch, bold); return w / 1000 * size / this.k; }
+  text(str, x, y, o = {}) {
+    const size = o.size || 10, bold = !!o.bold; str = pdfClean(str).replace(/\n/g, ' ');
+    if (o.maxW && this.width(str, size, bold) > o.maxW) { while (str.length > 1 && this.width(str + '…', size, bold) > o.maxW) str = str.slice(0, -1); str += '…'; }
+    const w = this.width(str, size, bold);
+    if (o.align === 'right') x -= w; else if (o.align === 'center') x -= w / 2;
+    const hex = encWin(str).map(c => c.toString(16).padStart(2, '0')).join('');
+    this.p.ops.push(`BT /${bold ? 'F2' : 'F1'} ${size} Tf ${this.rgb(o.color || '#000000')} rg ${this.X(x)} ${this.Y(y)} Td <${hex}> Tj ET`);
+    return w;
+  }
+  wrap(str, maxW, size, bold) {
+    const lines = [];
+    for (const para of pdfClean(str).split('\n')) {
+      const words = para.split(/ +/); let line = '';
+      if (!para.trim()) { lines.push(''); continue; }
+      for (let w of words) {
+        while (this.width(w, size, bold) > maxW) {
+          let i = w.length; while (i > 1 && this.width(w.slice(0, i), size, bold) > maxW) i--;
+          if (line) { lines.push(line); line = ''; }
+          lines.push(w.slice(0, i)); w = w.slice(i);
+        }
+        const t = line ? line + ' ' + w : w;
+        if (this.width(t, size, bold) <= maxW) line = t; else { lines.push(line); line = w; }
+      }
+      lines.push(line);
+    }
+    return lines;
+  }
+  line(x1, y1, x2, y2, o = {}) { this.p.ops.push(`${this.rgb(o.color || '#000000')} RG ${((o.w || 0.2) * this.k).toFixed(2)} w ${this.X(x1)} ${this.Y(y1)} m ${this.X(x2)} ${this.Y(y2)} l S`); }
+  rect(x, y, w, hh, o = {}) {
+    const r = `${this.X(x)} ${this.Y(y + hh)} ${(w * this.k).toFixed(2)} ${(hh * this.k).toFixed(2)} re`;
+    if (o.fill && o.stroke) this.p.ops.push(`${this.rgb(o.fill)} rg ${this.rgb(o.stroke)} RG ${((o.w || 0.2) * this.k).toFixed(2)} w ${r} B`);
+    else if (o.fill) this.p.ops.push(`${this.rgb(o.fill)} rg ${r} f`);
+    else this.p.ops.push(`${this.rgb(o.stroke || '#000000')} RG ${((o.w || 0.2) * this.k).toFixed(2)} w ${r} S`);
+  }
+  addJpeg(bytes) { const inf = jpegInfo(bytes); const im = { bytes, w: inf.w, h: inf.h, nc: inf.nc, name: 'Im' + (this.images.length + 1) }; this.images.push(im); return im; }
+  image(im, x, y, w, hh) { this.p.ops.push(`q ${(w * this.k).toFixed(2)} 0 0 ${(hh * this.k).toFixed(2)} ${this.X(x)} ${this.Y(y + hh)} cm /${im.name} Do Q`); }
+  output() {
+    const enc = new TextEncoder(); const objs = [null, null];
+    const add = parts => { objs.push(parts); return objs.length; };
+    const F1 = add(['<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>']);
+    const F2 = add(['<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>']);
+    for (const im of this.images) {
+      const cs = im.nc === 1 ? '/DeviceGray' : im.nc === 4 ? '/DeviceCMYK /Decode [1 0 1 0 1 0 1 0]' : '/DeviceRGB';
+      im.id = add([`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace ${cs} /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.bytes.length} >>\nstream\n`, im.bytes, '\nendstream']);
+    }
+    const xo = this.images.map(im => `/${im.name} ${im.id} 0 R`).join(' ');
+    const kids = [];
+    for (const p of this.pages) {
+      const content = p.ops.join('\n');
+      const cid = add([`<< /Length ${content.length} >>\nstream\n`, content, '\nendstream']);
+      kids.push(add([`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 ${F1} 0 R /F2 ${F2} 0 R >> /XObject << ${xo} >> >> /Contents ${cid} 0 R >>`]));
+    }
+    objs[0] = ['<< /Type /Catalog /Pages 2 0 R >>'];
+    objs[1] = [`<< /Type /Pages /Kids [${kids.map(k => k + ' 0 R').join(' ')}] /Count ${kids.length} >>`];
+    const d = new Date(); const ds = `D:${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    const titleHex = 'FEFF' + [...pdfClean(this.title)].map(ch => { const c = ch.codePointAt(0); return c > 0xFFFF ? '003F' : c.toString(16).padStart(4, '0'); }).join('');
+    const info = add([`<< /Title <${titleHex}> /Producer (Foto Cantiere) /CreationDate (${ds}) >>`]);
+    const chunks = []; let off = 0; const offsets = [];
+    const push = c => { const b = typeof c === 'string' ? enc.encode(c) : c; chunks.push(b); off += b.length; };
+    push('%PDF-1.4\n'); push(new Uint8Array([37, 226, 227, 207, 211, 10]));
+    objs.forEach((parts, i) => { offsets[i] = off; push(`${i + 1} 0 obj\n`); for (const c of parts) push(c); push('\nendobj\n'); });
+    const xref = off;
+    push(`xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offsets.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join(''));
+    push(`trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Info ${info} 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+    return new Blob(chunks, { type: 'application/pdf' });
+  }
+}
+
+/* ---------- disegno dei punti sulla planimetria (per PDF) ---------- */
+function drawPinsCanvas(ctx, W, H, points, unit) {
+  const ACC = '#1f4f8f', SIG = '#f2b705';
+  for (const p of points) {
+    const cx = p.x * W, cy = p.y * H;
+    for (const d of p.dirs) {
+      const a = d.ang * Math.PI / 180, L = 46 * unit;
+      const ex = cx + Math.sin(a) * L, ey = cy - Math.cos(a) * L;
+      ctx.strokeStyle = ACC; ctx.fillStyle = ACC; ctx.lineWidth = 4 * unit; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
+      const ha = 11 * unit; ctx.beginPath();
+      ctx.moveTo(ex + Math.sin(a) * ha * 0.6, ey - Math.cos(a) * ha * 0.6);
+      ctx.lineTo(ex + Math.sin(a + 2.5) * ha, ey - Math.cos(a + 2.5) * ha);
+      ctx.lineTo(ex + Math.sin(a - 2.5) * ha, ey - Math.cos(a - 2.5) * ha);
+      ctx.closePath(); ctx.fill();
+      if (p.dirs.length > 1) {
+        ctx.font = `600 ${13 * unit}px Helvetica, Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const tx = cx + Math.sin(a) * (L + 18 * unit), ty = cy - Math.cos(a) * (L + 18 * unit);
+        const tw = ctx.measureText(d.label).width + 8 * unit;
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(tx - tw / 2, ty - 9 * unit, tw, 18 * unit);
+        ctx.fillStyle = ACC; ctx.fillText(d.label, tx, ty);
+      }
+    }
+  }
+  for (const p of points) {
+    const cx = p.x * W, cy = p.y * H;
+    ctx.font = `700 ${15 * unit}px Helvetica, Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const tw = Math.max(28 * unit, ctx.measureText(p.label).width + 16 * unit), th = 28 * unit;
+    ctx.fillStyle = SIG; ctx.strokeStyle = '#1f1a08'; ctx.lineWidth = 2.2 * unit;
+    roundRect(ctx, cx - tw / 2, cy - th / 2, tw, th, th / 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#1f1a08'; ctx.fillText(p.label, cx, cy + 0.5 * unit);
+  }
+}
+function roundRect(ctx, x, y, w, hh, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + hh, r); ctx.arcTo(x + w, y + hh, x, y + hh, r); ctx.arcTo(x, y + hh, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+async function blobBytes(b) { return new Uint8Array(await b.arrayBuffer()); }
+
+/* ---------- rapporto fotografico ---------- */
+async function buildReport({ cant, grp, fotos, piante, perPage, withPlans, redattore, intestazione, contatti, onProgress }) {
+  const INK = '#16202a', MUTED = '#5a6673', ACC = '#1f4f8f', LINE = '#c9d1d9', SIG = '#f2b705';
+  const pdf = new PDFDoc(`Rapporto fotografico - ${cant.data.nome} - ${grp.data.titolo}`);
+  const M = 14, W = 210, H = 297, CW = W - 2 * M, TOP = 27, BOT = H - 16;
+  const header = () => {
+    pdf.text(intestazione || '', M, 12.5, { size: 11, bold: true, color: INK, maxW: CW * 0.62 });
+    if (contatti) pdf.text(contatti, M, 17, { size: 7.2, color: MUTED, maxW: CW * 0.66 });
+    pdf.text('RAPPORTO FOTOGRAFICO', W - M, 12.5, { size: 8.5, bold: true, color: ACC, align: 'right' });
+    pdf.text(fmtDay(grp.data.data), W - M, 17, { size: 7.5, color: MUTED, align: 'right' });
+    pdf.line(M, 20.5, W - M, 20.5, { w: 0.5, color: ACC });
+  };
+  const newPage = () => { pdf.addPage(); header(); return TOP; };
+  let y = newPage();
+
+  // Titolo e dati
+  for (const ln of pdf.wrap(grp.data.titolo || 'Gruppo foto', CW, 17, true)) { y += 7; pdf.text(ln, M, y, { size: 17, bold: true, color: INK }); }
+  y += 5;
+  const rows = [['Cantiere', cant.data.nome], ['Indirizzo', cant.data.indirizzo], ['Committente', cant.data.committente], ['Data', fmtDay(grp.data.data)], ['Numero foto', String(fotos.length)], ['Redatto da', redattore]].filter(r => r[1]);
+  pdf.line(M, y, W - M, y, { w: 0.2, color: LINE });
+  for (const [k, v] of rows) {
+    const lines = pdf.wrap(v, CW - 38, 10, false);
+    pdf.text(k.toUpperCase(), M, y + 5, { size: 7.5, bold: true, color: MUTED });
+    lines.forEach((ln, i) => pdf.text(ln, M + 38, y + 5 + i * 4.6, { size: 10, color: INK }));
+    y += 3 + lines.length * 4.6 + 1.6; pdf.line(M, y, W - M, y, { w: 0.2, color: LINE });
+  }
+  if (grp.data.descrizione) {
+    y += 7; pdf.text('DESCRIZIONE', M, y, { size: 7.5, bold: true, color: MUTED }); y += 1;
+    for (const ln of pdf.wrap(grp.data.descrizione, CW, 10, false)) {
+      if (y + 5 > BOT) y = newPage();
+      y += 4.8; pdf.text(ln, M, y, { size: 10, color: INK });
+    }
+  }
+
+  // Planimetrie con i punti di ripresa
+  if (withPlans) {
+    for (const p of piante) {
+      const pts = groupPoints(fotos, p.id); if (!pts.length) continue;
+      onProgress?.(`Planimetria ${p.data.label || ''}`);
+      const im = await decodeImage(await Store.getBlob(p)); const { w: iw, h: ih } = imgSize(im);
+      const s = Math.min(1, 2400 / Math.max(iw, ih)); const cw = Math.round(iw * s), ch = Math.round(ih * s);
+      const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch); ctx.drawImage(im, 0, 0, cw, ch); if (im.close) im.close();
+      drawPinsCanvas(ctx, cw, ch, pts, Math.max(cw, ch) / 760);
+      const jpg = pdf.addJpeg(await blobBytes(await canvasToBlob(c, 'image/jpeg', 0.88)));
+      let availH = BOT - (y + 14);
+      const fitH = Math.min(CW * ch / cw, 230);
+      if (availH < Math.min(fitH, 110)) { y = newPage(); availH = BOT - (y + 14); }
+      y += 9;
+      pdf.text('PLANIMETRIA', M, y, { size: 7.5, bold: true, color: MUTED });
+      pdf.text(p.data.label || '', M + 24, y, { size: 10, bold: true, color: INK, maxW: CW - 70 });
+      pdf.text('Numeri = foto scattate in quel punto; freccia = direzione', W - M, y, { size: 7, color: MUTED, align: 'right' });
+      y += 3;
+      const sc = Math.min(CW / cw, (BOT - y) / ch); const dw = cw * sc, dh = ch * sc;
+      pdf.image(jpg, M + (CW - dw) / 2, y, dw, dh); pdf.rect(M + (CW - dw) / 2, y, dw, dh, { stroke: LINE, w: 0.2 });
+      y += dh;
+    }
+  }
+
+  // Foto
+  const cols = perPage === 2 ? 1 : 2, rowsN = Math.max(1, Math.round(perPage / cols)), gap = 6;
+  const capH = perPage === 2 ? 24 : perPage === 4 ? 21 : 17;
+  const maxLines = perPage === 2 ? 3 : perPage === 4 ? 3 : 2;
+  const cellW = (CW - (cols - 1) * gap) / cols, cellH = (BOT - TOP - 2 - (rowsN - 1) * gap) / rowsN;
+  const boxH = cellH - capH; const pxMax = perPage === 2 ? 1800 : 1200;
+  const nameOf = id => { const p = piante.find(x => Store.same(x.id, id)); return p ? p.data.label : ''; };
+  let lastRow = -1, gy = TOP;
+  for (let i = 0; i < fotos.length; i++) {
+    const f = fotos[i]; const slot = i % perPage;
+    if (slot === 0) gy = newPage() + 2;
+    const col = slot % cols, row = Math.floor(slot / cols); lastRow = row;
+    const x = M + col * (cellW + gap), yy = gy + row * (cellH + gap);
+    onProgress?.(`Foto ${i + 1} di ${fotos.length}`, (i + 1) / fotos.length);
+    try {
+      const r = await resizeToJpeg(await Store.getBlob(f), pxMax, 0.82);
+      const jpg = pdf.addJpeg(await blobBytes(r.blob));
+      const sc = Math.min(cellW / r.w, boxH / r.h); const dw = r.w * sc, dh = r.h * sc;
+      const ix = x + (cellW - dw) / 2, iy = yy + boxH - dh;
+      pdf.image(jpg, ix, iy, dw, dh); pdf.rect(ix, iy, dw, dh, { stroke: LINE, w: 0.2 });
+    } catch (e) {
+      pdf.rect(x, yy, cellW, boxH, { stroke: LINE, w: 0.3 });
+      pdf.text('Foto non disponibile su questo dispositivo', x + cellW / 2, yy + boxH / 2, { size: 9, color: MUTED, align: 'center' });
+    }
+    let cy = yy + boxH + 5.2;
+    const lbl = `Foto n. ${f.n}`;
+    pdf.rect(x, cy - 3.6, 2.2, 4.6, { fill: SIG });
+    pdf.text(lbl, x + 4, cy, { size: 9.5, bold: true, color: INK });
+    pdf.text(fmtDateTime(f.data.taken), x + cellW, cy, { size: 7.8, color: MUTED, align: 'right' });
+    const where = f.data.pianta ? `Planimetria: ${nameOf(f.data.pianta)}` : 'Senza punto su planimetria';
+    cy += 4; pdf.text(where + (f.data.autore ? ` · ${f.data.autore}` : ''), x, cy, { size: 7.5, color: MUTED, maxW: cellW });
+    if (f.data.nota) {
+      let lines = pdf.wrap(f.data.nota, cellW, 8.6, false);
+      if (lines.length > maxLines) { lines = lines.slice(0, maxLines); lines[maxLines - 1] = lines[maxLines - 1].replace(/\s*\S*$/, '') + ' […]'; }
+      for (const ln of lines) { cy += 3.9; pdf.text(ln, x, cy, { size: 8.6, color: INK }); }
+    }
+  }
+
+  // Firma
+  let sy;
+  if (fotos.length) { const used = gy + (lastRow + 1) * (cellH + gap); sy = (fotos.length % perPage === 0 || BOT - used < 34) ? newPage() + 4 : used; }
+  else sy = BOT - y < 40 ? newPage() + 4 : y + 6;
+  sy += 8;
+  pdf.text(`Data: ${fmtDay(todayISO())}`, M, sy + 6, { size: 9.5, color: INK });
+  pdf.text('Il tecnico', W - M - 35, sy, { size: 8, color: MUTED, align: 'center' });
+  pdf.text(redattore || '', W - M - 35, sy + 6, { size: 10, bold: true, color: INK, align: 'center' });
+  pdf.line(W - M - 70, sy + 20, W - M, sy + 20, { w: 0.3, color: INK });
+
+  // Piè di pagina
+  const n = pdf.pages.length;
+  pdf.pages.forEach((pg, i) => {
+    pdf.p = pg;
+    pdf.line(M, H - 12, W - M, H - 12, { w: 0.2, color: LINE });
+    pdf.text(`${cant.data.nome} — ${grp.data.titolo}`, M, H - 8, { size: 7, color: MUTED, maxW: CW - 30 });
+    pdf.text(`Pag. ${i + 1} di ${n}`, W - M, H - 8, { size: 7, color: MUTED, align: 'right' });
+  });
+  return pdf.output();
+}
+
+/* =====================================================================
+   Interfaccia
+   ===================================================================== */
+function toast(msg, kind) {
+  const t = h('div', { class: 'toast ' + (kind || '') }, msg); $('#toasts').append(t);
+  setTimeout(() => t.classList.add('out'), 2800); setTimeout(() => t.remove(), 3200);
+}
+function modal({ title, body, actions, dismissable = true }) {
+  return new Promise(res => {
+    let closed = false;
+    const close = v => { if (closed) return; closed = true; back.remove(); document.removeEventListener('keydown', onKey); res(v); };
+    const onKey = e => { if (e.key === 'Escape' && dismissable) close(null); };
+    const back = h('div', { class: 'modal-back', onclick: e => { if (e.target === back && dismissable) close(null); } });
+    const acts = h('div', { class: 'modal-actions' }, (actions || []).map(a => h('button', {
+      class: 'btn ' + (a.kind || ''), type: 'button', disabled: a.disabled || null,
+      onclick: async ev => {
+        if (!a.onClick) return close(a.value);
+        const r = await a.onClick(ev); if (r === false) return; close(r === undefined ? a.value : r);
+      },
+    }, a.icon ? icon(a.icon) : null, a.label)));
+    const box = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, h('h2', { class: 'modal-title' }, title), body || null, actions?.length ? acts : null);
+    back.append(box); document.body.append(back); document.addEventListener('keydown', onKey);
+    const f = box.querySelector('input:not([type=checkbox]),textarea,select'); if (f) setTimeout(() => f.focus(), 60);
+    back._close = close;
+  });
+}
+const confirmBox = (title, text, ok = 'Conferma', danger = false) =>
+  modal({ title, body: h('p', { class: 'modal-text' }, text), actions: [{ label: 'Annulla', value: false }, { label: ok, kind: danger ? 'danger solid' : 'primary', value: true }] });
+function busy(text) {
+  const label = h('p', { class: 'modal-text' }, text); const bar = h('i'); let closeFn;
+  const p = modal({ title: 'Attendi', body: h('div', { class: 'form' }, label, h('div', { class: 'progress' }, bar)), actions: [], dismissable: false });
+  const back = document.body.lastElementChild; closeFn = back._close;
+  return { set(t, frac) { label.textContent = t; if (frac != null) bar.style.width = Math.round(frac * 100) + '%'; }, close() { closeFn && closeFn(null); }, done: p };
+}
+const field = (label, input, hint) => h('label', { class: 'field' }, h('span', null, label), input, hint ? h('small', null, hint) : null);
+function pickFiles({ accept, capture, multiple }) {
+  return new Promise(res => {
+    const inp = h('input', { type: 'file', accept, capture: capture || null, multiple: multiple || null, style: 'position:fixed;left:-9999px;opacity:0' });
+    inp.addEventListener('change', () => { const f = [...inp.files]; inp.remove(); res(f); });
+    document.body.append(inp); inp.click();
+  });
+}
+async function saveOrShare(blob, filename) {
+  if (IN_ARTIFACT) {
+    const dl = await window.claude.use('downloads');
+    if (!dl) { toast('Il salvataggio di file non è disponibile in questa anteprima', 'err'); return; }
+    try { await dl.save({ filename, data: blob }); toast('File salvato'); }
+    catch (e) { if (e?.code !== 'declined') toast('Salvataggio non riuscito', 'err'); }
+    return;
+  }
+  const a = h('a', { href: URL.createObjectURL(blob), download: filename }); document.body.append(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+}
+const canShareFiles = () => !IN_ARTIFACT && !!navigator.canShare && (() => { try { return navigator.canShare({ files: [new File(['x'], 'x.txt', { type: 'text/plain' })] }); } catch { return false; } })();
+
+/* ---------- stato sincronizzazione ---------- */
+function syncInfo() {
+  const s = Store.status; const n = s.pending;
+  if (s.error) return { s: 'error', t: 'Caricamento bloccato' };
+  if (s.net === 'auth' && n) return { s: 'auth', t: `Accedi per caricare (${n})` };
+  if (s.net === 'offline' && n) return { s: 'offline', t: `Senza rete · ${n} in attesa` };
+  if (s.net === 'offline') return { s: 'offline', t: 'Senza rete' };
+  if (n) return { s: 'busy', t: `Caricamento… ${n}` };
+  return { s: 'ok', t: MODE === 'demo' ? 'Prova · sul telefono' : 'Archivio aggiornato' };
+}
+function syncChip(compact) {
+  const el = h('button', { class: 'sync' + (compact ? ' compact' : ''), type: 'button', 'aria-label': 'Stato archivio', onclick: () => Nav.push(() => SettingsView()) }, h('span', { class: 'dot' }), h('span', { class: 'txt' }));
+  paintChip(el); return el;
+}
+function paintChip(el) { const i = syncInfo(); el.dataset.s = i.s; el.querySelector('.txt').textContent = i.t; el.title = i.t; }
+const paintChips = () => document.querySelectorAll('.sync').forEach(paintChip);
+
+/* ---------- navigazione ---------- */
+const Nav = {
+  stack: [],
+  top() { return this.stack[this.stack.length - 1]; },
+  push(f) { const cur = this.top(); if (cur) cur.scrollY = window.scrollY; this.stack.push(f()); this.show(); },
+  back() { const v = this.stack.pop(); v?.destroy?.(); if (!this.stack.length) this.stack.push(HomeView()); this.show(); },
+  reset(f) { while (this.stack.length) this.stack.pop().destroy?.(); this.push(f); },
+  show() { const v = this.top(); $('#app').replaceChildren(v.el); paintChips(); window.scrollTo(0, v.scrollY || 0); v.onShow?.(); },
+};
+function AppBar({ title, sub, back = true, actions = [], chip = true, compact = back }) {
+  return h('header', { class: 'bar' }, h('div', { class: 'bar-in gut' },
+    back ? h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Indietro', onclick: () => Nav.back() }, icon('back')) : null,
+    h('div', { class: 'bar-titles' }, h('h1', { class: 'bar-title' }, title), sub ? h('div', { class: 'bar-sub' }, sub) : null),
+    chip ? syncChip(compact) : null, ...actions));
+}
+const iconBtn = (name, label, onclick) => h('button', { class: 'icon-btn', type: 'button', 'aria-label': label, title: label, onclick }, icon(name));
+const actionBar = (...btns) => h('div', { class: 'actionbar gut' }, h('div', { class: 'actionbar-in' }, btns));
+function stateTag(e) { if (e.error) return h('span', { class: 'tag err' }, 'errore'); if (e.pending) return h('span', { class: 'tag wait' }, 'da caricare'); return null; }
+function showLoadError(container, e) {
+  container.replaceChildren(h('div', { class: 'notice err' }, h('strong', null, 'Impossibile caricare i dati. '), e.message || String(e)));
+}
+async function sheet(title, items) {
+  return modal({ title, body: h('div', { class: 'sheet-list' }, items.map(it => h('button', { class: 'btn ' + (it.kind || ''), type: 'button', onclick: () => { document.querySelector('.modal-back')?._close(it.value); } }, icon(it.icon), it.label))), actions: [{ label: 'Chiudi', value: null }] });
+}
+
+/* ---------- Planimetria interattiva ---------- */
+function PlanView({ pianta, points = [], interactive = false, onTap, onPointTap, height = '50vh' }) {
+  const img = h('img', { alt: 'Planimetria', draggable: 'false' });
+  const svg = sv('svg', { class: 'plan-pins', preserveAspectRatio: 'none' });
+  const stage = h('div', { class: 'plan-stage' }, img, svg);
+  const scroller = h('div', { class: 'plan-scroll' }, stage);
+  const msg = h('div', { class: 'plan-msg' }, 'Caricamento planimetria…');
+  const zbtn = (lbl, label, fn) => h('button', { type: 'button', 'aria-label': label, onclick: fn }, lbl);
+  const tools = h('div', { class: 'plan-tools' }, zbtn('+', 'Ingrandisci', () => setZoom(zoom * 1.5)), zbtn('−', 'Riduci', () => setZoom(zoom / 1.5)), zbtn(icon('fit'), 'Adatta', () => setZoom(1)));
+  const root = h('div', { class: 'plan', style: `--plan-h:${height}` }, scroller, msg, tools);
+  let zoom = 1, natW = 0, natH = 0, pts = points;
+  const baseW = () => { const bw = scroller.clientWidth, bh = scroller.clientHeight; return natW ? Math.min(bw, bh * natW / natH) : bw; };
+  function setZoom(z, cx, cy) {
+    if (!natW) return;
+    const old = zoom; zoom = Math.max(1, Math.min(10, z));
+    const r = scroller.getBoundingClientRect();
+    const px = (cx ?? r.left + r.width / 2) - r.left, py = (cy ?? r.top + r.height / 2) - r.top;
+    const sx = (scroller.scrollLeft + px) / old, sy2 = (scroller.scrollTop + py) / old;
+    stage.style.width = baseW() * zoom + 'px';
+    scroller.scrollLeft = sx * zoom - px; scroller.scrollTop = sy2 * zoom - py;
+    draw();
+  }
+  function draw() {
+    if (!natW) return;
+    svg.setAttribute('viewBox', `0 0 ${natW} ${natH}`); svg.replaceChildren();
+    const u = natW / Math.max(1, stage.clientWidth || baseW());
+    const g1 = sv('g'), g2 = sv('g');
+    for (const p of pts) {
+      const cx = p.x * natW, cy = p.y * natH;
+      for (const d of (p.dirs || [])) {
+        const a = d.ang * Math.PI / 180, L = 44 * u, ex = cx + Math.sin(a) * L, ey = cy - Math.cos(a) * L, ha = 11 * u;
+        const col = p.active ? 'var(--signal)' : '#1f4f8f';
+        g1.append(sv('line', { x1: cx, y1: cy, x2: ex, y2: ey, stroke: '#ffffff', 'stroke-width': 7 * u, 'stroke-linecap': 'round' }));
+        g1.append(sv('line', { x1: cx, y1: cy, x2: ex, y2: ey, stroke: col, 'stroke-width': 4 * u, 'stroke-linecap': 'round' }));
+        g1.append(sv('polygon', { points: [[ex + Math.sin(a) * ha * .6, ey - Math.cos(a) * ha * .6], [ex + Math.sin(a + 2.5) * ha, ey - Math.cos(a + 2.5) * ha], [ex + Math.sin(a - 2.5) * ha, ey - Math.cos(a - 2.5) * ha]].map(q => q.join(',')).join(' '), fill: col, stroke: '#ffffff', 'stroke-width': 1.5 * u }));
+        if ((p.dirs || []).length > 1 && d.label) {
+          const tx = cx + Math.sin(a) * (L + 17 * u), ty = cy - Math.cos(a) * (L + 17 * u), tw = (d.label.length * 7 + 8) * u;
+          g1.append(sv('rect', { x: tx - tw / 2, y: ty - 8 * u, width: tw, height: 16 * u, rx: 3 * u, fill: '#ffffff' }));
+          g1.append(sv('text', { x: tx, y: ty + 4.2 * u, 'text-anchor': 'middle', 'font-size': 12 * u, 'font-weight': 700, fill: '#1f4f8f', 'font-family': 'IBM Plex Mono, monospace' }, d.label));
+        }
+      }
+      const lbl = p.label ?? '', tw = Math.max(26, lbl.length * 8 + 14) * u, th = 26 * u;
+      const grp = sv('g', { class: onPointTap ? 'hit' : null });
+      grp.append(sv('rect', { x: cx - tw / 2, y: cy - th / 2, width: tw, height: th, rx: th / 2, fill: p.active ? '#f2b705' : '#f2b705', stroke: '#1f1a08', 'stroke-width': (p.active ? 3 : 2) * u }));
+      if (lbl) grp.append(sv('text', { x: cx, y: cy + 4.6 * u, 'text-anchor': 'middle', 'font-size': 13.5 * u, 'font-weight': 700, fill: '#1f1a08', 'font-family': 'IBM Plex Mono, monospace' }, lbl));
+      else grp.append(sv('circle', { cx, cy, r: 4 * u, fill: '#1f1a08' }));
+      if (onPointTap) grp.addEventListener('click', e => { e.stopPropagation(); onPointTap(p); });
+      g2.append(grp);
+    }
+    svg.append(g1, g2);
+  }
+  img.addEventListener('load', () => {
+    natW = img.naturalWidth; natH = img.naturalHeight; msg.hidden = true;
+    requestAnimationFrame(() => {
+      const fitH = scroller.clientWidth * natH / natW;
+      if (fitH < scroller.clientHeight) scroller.style.height = Math.max(180, Math.round(fitH)) + 'px';
+      stage.style.width = baseW() + 'px'; draw();
+    });
+  });
+  img.addEventListener('error', () => { msg.textContent = 'Planimetria non disponibile senza rete. Riprova quando c\'è connessione.'; });
+  if (interactive) {
+    img.addEventListener('click', e => { const r = img.getBoundingClientRect(); onTap?.(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)), natW, natH); });
+    img.style.cursor = 'crosshair';
+  }
+  // zoom con due dita
+  let pinch = null;
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  scroller.addEventListener('touchstart', e => { if (e.touches.length === 2) pinch = { d: dist(e.touches), z: zoom }; }, { passive: true });
+  scroller.addEventListener('touchmove', e => {
+    if (e.touches.length === 2 && pinch) { e.preventDefault(); const t = e.touches; setZoom(pinch.z * dist(t) / pinch.d, (t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2); }
+  }, { passive: false });
+  scroller.addEventListener('touchend', e => { if (e.touches.length < 2) pinch = null; });
+  scroller.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); setZoom(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX, e.clientY); } }, { passive: false });
+  const ro = new ResizeObserver(() => { if (natW) { stage.style.width = baseW() * zoom + 'px'; draw(); } }); ro.observe(scroller);
+  Store.fullURL(pianta).then(u => { img.src = u; }).catch(() => { msg.textContent = 'Planimetria non disponibile senza rete. Riprova quando c\'è connessione.'; });
+  return { el: root, setPoints(p) { pts = p; draw(); }, destroy() { ro.disconnect(); } };
+}
+
+/* ---------- Accesso ---------- */
+function LoginView(error) {
+  const err = h('div', { class: 'notice err', hidden: !error }, error || '');
+  const btn = h('button', { class: 'btn primary big', type: 'button', onclick: () => Auth.start() }, 'Accedi con Google');
+  const el = h('div', { class: 'login gut' }, h('div', { class: 'login-box' },
+    h('div', { class: 'brand' }, h('div', { class: 'brand-mark' }, icon('pin')), h('div', null, h('h1', null, 'Foto Cantiere'), h('p', null, 'Archivio fotografico dei cantieri'))),
+    h('p', { class: 'modal-text' }, 'Accesso riservato. Entra con l\'account Google che è stato autorizzato; le foto vengono archiviate nella cartella Google Drive condivisa.'),
+    err, btn,
+    Auth.user ? h('p', { class: 'hint' }, 'Ultimo accesso: ', h('b', null, Auth.user.email)) : null));
+  return { el };
+}
+
+/* ---------- Cantieri ---------- */
+function cantiereForm(d = {}) {
+  const f = {
+    nome: h('input', { id: 'c-nome', value: d.nome || '', placeholder: 'Es. Ristrutturazione Rossi', autocomplete: 'off' }),
+    indirizzo: h('input', { id: 'c-ind', value: d.indirizzo || '', placeholder: 'Via, numero civico, comune' }),
+    committente: h('input', { id: 'c-com', value: d.committente || '' }),
+    intestazione: h('input', { id: 'c-int', value: d.intestazione ?? CONFIG.INTESTAZIONE_DEFAULT }),
+    contatti: h('input', { id: 'c-cont', value: d.contatti ?? CONFIG.CONTATTI_DEFAULT }),
+  };
+  const body = h('div', { class: 'form' }, field('Nome del cantiere *', f.nome), field('Indirizzo', f.indirizzo), field('Committente', f.committente),
+    field('Intestazione del rapporto', f.intestazione, 'Es. il tuo nome o quello dello studio, a seconda dell\'incarico'), field('Riga contatti del rapporto', f.contatti));
+  const read = () => Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.value.trim()]));
+  return { body, read, f };
+}
+function HomeView() {
+  const list = h('div', { class: 'card list' }, h('div', { class: 'spin' }));
+  const demo = MODE === 'demo' ? h('div', { class: 'notice' }, h('strong', null, 'Modalità prova. '), 'I dati restano su questo dispositivo. Il cantiere di esempio serve solo a vedere come funziona: puoi eliminarlo.') : null;
+  const ro = READONLY ? h('div', { class: 'notice' }, h('strong', null, 'Sola consultazione. '), 'Il tuo account può vedere l\'archivio ma non aggiungere foto.') : null;
+  const el = h('div', null,
+    AppBar({ title: 'Cantieri', sub: MODE === 'drive' ? (Auth.user?.email || '') : 'Archivio foto', back: false, actions: [iconBtn('gear', 'Impostazioni', () => Nav.push(() => SettingsView()))] }),
+    h('main', { class: 'main gut' + (READONLY ? ' no-bar' : '') }, demo, ro, list),
+    READONLY ? null : actionBar(h('button', { class: 'btn primary big', type: 'button', onclick: add }, icon('plus'), 'Nuovo cantiere')));
+  function render(items) {
+    items.sort((a, b) => String(b.modified || b.created).localeCompare(String(a.modified || a.created)));
+    if (!items.length) return list.replaceChildren(h('div', { class: 'empty' }, h('strong', null, 'Nessun cantiere'), READONLY ? 'Non ci sono ancora cantieri nell\'archivio.' : 'Crea il primo cantiere con il pulsante in basso.'));
+    list.replaceChildren(...items.map(c => h('button', { class: 'row', type: 'button', onclick: () => Nav.push(() => CantiereView(c)) },
+      h('div', { class: 'row-main' }, h('div', { class: 'row-title' }, c.data.nome, stateTag(c)), h('div', { class: 'row-sub' }, [c.data.indirizzo, c.data.committente].filter(Boolean).join(' · ') || 'Nessun indirizzo')),
+      icon('chev', 'chev'))));
+  }
+  async function load() {
+    const c = await Store.cachedList('cantiere', ROOT_ID); if (c) render(c);
+    try { render(await Store.list('cantiere', ROOT_ID)); } catch (e) { if (!c) showLoadError(list, e); else toast(e.message, 'err'); }
+  }
+  async function add() {
+    const fm = cantiereForm();
+    const ok = await modal({ title: 'Nuovo cantiere', body: fm.body, actions: [{ label: 'Annulla', value: false }, { label: 'Crea cantiere', kind: 'primary', onClick: () => { if (!fm.f.nome.value.trim()) { fm.f.nome.focus(); toast('Indica il nome del cantiere', 'err'); return false; } return true; } }] });
+    if (!ok) return;
+    const c = await Store.create('cantiere', ROOT_ID, { ...fm.read(), creato: new Date().toISOString() });
+    Nav.push(() => CantiereView(c));
+  }
+  return { el, onShow: load, onStore: async () => { const c = await Store.cachedList('cantiere', ROOT_ID); if (c) render(c); } };
+}
+
+function CantiereView(cant) {
+  let tab = 'gruppi', gruppi = null, piante = null;
+  const titleEl = h('h1', { class: 'bar-title' }, cant.data.nome);
+  const bar = AppBar({ title: '', sub: cant.data.indirizzo || '', actions: [iconBtn('more', 'Altre azioni', more)] });
+  bar.querySelector('.bar-title').replaceWith(titleEl);
+  const segG = h('button', { type: 'button', 'aria-pressed': 'true', onclick: () => setTab('gruppi') }, icon('grid'), 'Gruppi di foto');
+  const segP = h('button', { type: 'button', 'aria-pressed': 'false', onclick: () => setTab('piante') }, icon('map'), 'Planimetrie');
+  const body = h('div', { class: 'card list' }, h('div', { class: 'spin' }));
+  const addBtn = h('button', { class: 'btn primary big', type: 'button', onclick: () => tab === 'gruppi' ? addGruppo() : addPianta() });
+  const el = h('div', null, bar, h('main', { class: 'main gut' + (READONLY ? ' no-bar' : '') }, h('div', { class: 'seg' }, segG, segP), body), READONLY ? null : actionBar(addBtn));
+  function setTab(t) { tab = t; segG.setAttribute('aria-pressed', t === 'gruppi'); segP.setAttribute('aria-pressed', t === 'piante'); render(); }
+  function render() {
+    addBtn.replaceChildren(icon('plus'), tab === 'gruppi' ? 'Nuovo gruppo di foto' : 'Aggiungi planimetria');
+    const items = tab === 'gruppi' ? gruppi : piante;
+    if (!items) return body.replaceChildren(h('div', { class: 'spin' }));
+    if (tab === 'gruppi') {
+      items.sort((a, b) => String(b.data.data || '').localeCompare(String(a.data.data || '')) || String(b.created).localeCompare(String(a.created)));
+      if (!items.length) return body.replaceChildren(h('div', { class: 'empty' }, h('strong', null, 'Nessun gruppo di foto'), 'Un gruppo raccoglie le foto di un sopralluogo o di una lavorazione, con la sua descrizione.'));
+      body.replaceChildren(...items.map(g => h('button', { class: 'row', type: 'button', onclick: () => Nav.push(() => GruppoView(cant, g)) },
+        h('div', { class: 'row-main' }, h('div', { class: 'row-title' }, g.data.titolo, stateTag(g)), g.data.descrizione ? h('div', { class: 'row-sub' }, g.data.descrizione.length > 110 ? g.data.descrizione.slice(0, 110) + '…' : g.data.descrizione) : null),
+        h('div', { class: 'row-meta' }, fmtDay(g.data.data)), icon('chev', 'chev'))));
+    } else {
+      items.sort((a, b) => String(a.created).localeCompare(String(b.created)));
+      if (!items.length) return body.replaceChildren(h('div', { class: 'empty' }, h('strong', null, 'Nessuna planimetria'), 'Carica la pianta del cantiere (JPG, PNG o PDF): servirà per indicare dove scatti ogni foto.'));
+      body.replaceChildren(...items.map(p => {
+        const th = h('img', { class: 'row-thumb', alt: '' }); Store.thumbURL(p).then(u => th.src = u).catch(() => {});
+        return h('button', { class: 'row', type: 'button', onclick: () => piantaMenu(p) }, th, h('div', { class: 'row-main' }, h('div', { class: 'row-title' }, p.data.label || 'Planimetria', stateTag(p))), icon('more', 'chev'));
+      }));
+    }
+  }
+  async function load(cachedOnly) {
+    const [cg, cp] = await Promise.all([Store.cachedList('gruppo', cant.id), Store.cachedList('pianta', cant.id)]);
+    if (cg) gruppi = cg; if (cp) piante = cp; render();
+    if (cachedOnly) return;
+    try { [gruppi, piante] = await Promise.all([Store.list('gruppo', cant.id), Store.list('pianta', cant.id)]); render(); }
+    catch (e) { if (!gruppi) showLoadError(body, e); else toast(e.message, 'err'); }
+  }
+  async function addGruppo() {
+    const t = h('input', { id: 'g-tit', placeholder: 'Es. Sopralluogo impianti, Getto solaio…' }), d = h('input', { id: 'g-data', type: 'date', value: todayISO() }), ds = h('textarea', { id: 'g-desc', placeholder: 'Cosa documentano queste foto' });
+    const ok = await modal({ title: 'Nuovo gruppo di foto', body: h('div', { class: 'form' }, field('Titolo *', t), field('Data', d), field('Descrizione', ds)), actions: [{ label: 'Annulla', value: false }, { label: 'Crea gruppo', kind: 'primary', onClick: () => { if (!t.value.trim()) { t.focus(); toast('Indica un titolo', 'err'); return false; } return true; } }] });
+    if (!ok) return;
+    const g = await Store.create('gruppo', cant.id, { titolo: t.value.trim(), data: d.value || todayISO(), descrizione: ds.value.trim() });
+    Nav.push(() => GruppoView(cant, g));
+  }
+  async function addPianta() {
+    const files = await pickFiles({ accept: 'image/*,application/pdf' }); if (!files.length) return;
+    const file = files[0]; const b = busy('Preparazione della planimetria…');
+    try {
+      let blob;
+      if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+        b.close();
+        blob = await pdfPageToJpeg(file, async n => {
+          const sel = h('select', { id: 'p-page' }, Array.from({ length: n }, (_, i) => h('option', { value: i + 1 }, `Pagina ${i + 1}`)));
+          const r = await modal({ title: 'Quale pagina del PDF?', body: field(`Il PDF ha ${n} pagine`, sel), actions: [{ label: 'Annulla', value: null }, { label: 'Usa questa pagina', kind: 'primary', onClick: () => +sel.value }] });
+          return r;
+        });
+        if (!blob) return;
+      } else { blob = (await resizeToJpeg(file, 3200, 0.9)).blob; b.close(); }
+      const lab = h('input', { id: 'p-lab', value: file.name.replace(/\.[^.]+$/, ''), placeholder: 'Es. Piano terra' });
+      const ok = await modal({ title: 'Nome della planimetria', body: field('Nome', lab), actions: [{ label: 'Annulla', value: false }, { label: 'Salva', kind: 'primary', value: true }] });
+      if (!ok) return;
+      const p = await Store.create('pianta', cant.id, { label: lab.value.trim() || 'Planimetria' }, blob);
+      await Store.putThumb(p, blob); toast('Planimetria aggiunta');
+      load(true);
+    } catch (e) { b.close(); toast(/pdf|PDF|caricare/.test(e.message) ? 'Non riesco a leggere il PDF. Prova a salvarlo come immagine JPG o PNG.' : e.message, 'err'); }
+  }
+  async function piantaMenu(p) {
+    const items = [{ icon: 'image', label: 'Vedi', value: 'view' }];
+    if (!READONLY) items.push({ icon: 'edit', label: 'Rinomina', value: 'ren' }, { icon: 'trash', label: 'Elimina', value: 'del', kind: 'danger' });
+    const a = await sheet(p.data.label || 'Planimetria', items);
+    if (a === 'view') { const pv = PlanView({ pianta: p, height: '62vh' }); await modal({ title: p.data.label, body: pv.el, actions: [{ label: 'Chiudi', value: null }] }); pv.destroy(); }
+    if (a === 'ren') { const i = h('input', { id: 'p-ren', value: p.data.label || '' }); if (await modal({ title: 'Rinomina planimetria', body: field('Nome', i), actions: [{ label: 'Annulla', value: false }, { label: 'Salva', kind: 'primary', value: true }] })) { await Store.update(p, { label: i.value.trim() || 'Planimetria' }); load(true); } }
+    if (a === 'del' && await confirmBox('Eliminare la planimetria?', 'Le foto collegate restano, ma non mostreranno più il punto di ripresa.', 'Elimina', true)) { await Store.remove(p); load(true); }
+  }
+  async function more() {
+    if (READONLY) return;
+    const a = await sheet(cant.data.nome, [{ icon: 'edit', label: 'Modifica dati del cantiere', value: 'edit' }, { icon: 'trash', label: 'Elimina cantiere', value: 'del', kind: 'danger' }]);
+    if (a === 'edit') {
+      const fm = cantiereForm(cant.data);
+      if (await modal({ title: 'Dati del cantiere', body: fm.body, actions: [{ label: 'Annulla', value: false }, { label: 'Salva', kind: 'primary', onClick: () => !!fm.f.nome.value.trim() || (toast('Indica il nome', 'err'), false) }] })) {
+        await Store.update(cant, fm.read()); titleEl.textContent = cant.data.nome; bar.querySelector('.bar-sub') && (bar.querySelector('.bar-sub').textContent = cant.data.indirizzo || ''); toast('Dati salvati');
+      }
+    }
+    if (a === 'del' && await confirmBox('Eliminare il cantiere?', MODE === 'drive' ? 'La cartella del cantiere, con tutte le foto, va nel cestino di Google Drive (recuperabile da lì per 30 giorni).' : 'Verranno eliminate tutte le foto del cantiere da questo dispositivo.', 'Elimina', true)) { await Store.remove(cant); Nav.back(); }
+  }
+  return { el, onShow: () => load(false), onStore: () => load(true) };
+}
+
+/* ---------- Gruppo di foto ---------- */
+function GruppoView(cant, grp) {
+  let mode = 'grid', fotos = null, piante = [], planSel = null, pv = null;
+  const titleEl = h('h1', { class: 'bar-title' }, grp.data.titolo);
+  const bar = AppBar({ title: '', sub: `${cant.data.nome} · ${fmtDay(grp.data.data)}`, actions: [iconBtn('more', 'Altre azioni', more)] });
+  bar.querySelector('.bar-title').replaceWith(titleEl);
+  const desc = h('div', { class: 'card info-grid' });
+  const segA = h('button', { type: 'button', 'aria-pressed': 'true', onclick: () => setMode('grid') }, icon('grid'), 'Foto');
+  const segB = h('button', { type: 'button', 'aria-pressed': 'false', onclick: () => setMode('plan') }, icon('map'), 'Sulla planimetria');
+  const body = h('div', null, h('div', { class: 'spin' }));
+  const shoot = h('button', { class: 'btn primary big grow', type: 'button', onclick: () => Nav.push(() => ScattoView(cant, grp)) }, icon('camera'), 'Scatta foto');
+  const rep = h('button', { class: 'btn big', type: 'button', onclick: report }, icon('file'), 'Rapporto');
+  const el = h('div', null, bar, h('main', { class: 'main gut' }, desc, h('div', { class: 'seg' }, segA, segB), body), actionBar(READONLY ? null : shoot, rep));
+  function renderDesc() {
+    desc.replaceChildren(
+      h('dt', null, 'Data'), h('dd', { class: 'mono' }, fmtDay(grp.data.data)),
+      h('dt', null, 'Foto'), h('dd', { class: 'mono' }, fotos ? String(fotos.length) : '…'),
+      h('dt', null, 'Descrizione'), h('dd', null, grp.data.descrizione || h('span', { style: 'color:var(--muted)' }, 'Nessuna descrizione')));
+  }
+  function setMode(m) { mode = m; segA.setAttribute('aria-pressed', m === 'grid'); segB.setAttribute('aria-pressed', m === 'plan'); render(); }
+  function tile(f) {
+    const im = h('img', { alt: `Foto ${f.n}`, loading: 'lazy' }); Store.thumbURL(f).then(u => im.src = u).catch(() => {});
+    return h('button', { class: 'tile', type: 'button', onclick: () => Nav.push(() => FotoView(cant, grp, fotos, f.n - 1)), 'aria-label': `Foto ${f.n}${f.data.nota ? ': ' + f.data.nota : ''}` },
+      im, h('span', { class: 'num' }, f.n),
+      f.error ? h('span', { class: 'state err', title: 'Errore di caricamento' }, icon('alert')) : f.pending ? h('span', { class: 'state', title: 'Da caricare' }, icon('clock')) : null,
+      f.data.nota ? h('span', { class: 'cap' }, h('span', null, f.data.nota)) : null);
+  }
+  function render() {
+    renderDesc(); pv?.destroy(); pv = null;
+    if (!fotos) return;
+    if (!fotos.length) return body.replaceChildren(h('div', { class: 'card empty' }, h('strong', null, 'Ancora nessuna foto'), READONLY ? '' : 'Tocca «Scatta foto», indica sulla planimetria dove ti trovi e scatta.'));
+    if (mode === 'grid') return body.replaceChildren(h('div', { class: 'grid' }, fotos.map(tile)));
+    const used = piante.filter(p => fotos.some(f => Store.same(f.data.pianta, p.id)));
+    if (!used.length) return body.replaceChildren(h('div', { class: 'card empty' }, h('strong', null, 'Nessuna foto collocata'), 'Le foto di questo gruppo non hanno un punto sulla planimetria.'));
+    if (!planSel || !used.some(p => p.id === planSel.id)) planSel = used[0];
+    const chips = used.length > 1 ? h('div', { class: 'chips' }, used.map(p => h('button', { class: 'chip', type: 'button', 'aria-pressed': p.id === planSel.id, onclick: () => { planSel = p; render(); } }, p.data.label))) : null;
+    pv = PlanView({ pianta: planSel, points: groupPoints(fotos, planSel.id), height: '60vh', onPointTap: pointSheet });
+    const senza = fotos.filter(f => !f.data.pianta).length;
+    body.replaceChildren(h('div', { class: 'form' }, chips, pv.el, h('p', { class: 'hint' }, icon('pin'), h('span', null, 'Tocca un punto per vedere le foto scattate lì.', senza ? ` ${senza} foto senza punto.` : ''))));
+  }
+  async function pointSheet(p) {
+    const strip = h('div', { class: 'grid' }, p.fotos.map(f => { const t = tile(f); t.addEventListener('click', () => document.querySelector('.modal-back')?._close(null)); return t; }));
+    await modal({ title: `Punto ${p.label}`, body: strip, actions: [{ label: 'Chiudi', value: null }] });
+  }
+  async function load(cachedOnly) {
+    const [cf, cp] = await Promise.all([Store.cachedList('foto', grp.id), Store.cachedList('pianta', cant.id)]);
+    if (cf) fotos = numberFotos(cf); if (cp) piante = cp; render();
+    if (cachedOnly) return;
+    try { const [f, p] = await Promise.all([Store.list('foto', grp.id), Store.list('pianta', cant.id)]); fotos = numberFotos(f); piante = p; render(); }
+    catch (e) { if (!fotos) showLoadError(body, e); else toast(e.message, 'err'); }
+  }
+  async function report() {
+    if (!fotos?.length) return toast('Nel gruppo non ci sono foto', 'err');
+    const st = Settings.get();
+    const per = h('select', { id: 'r-per' }, [2, 4, 6].map(n => h('option', { value: n, selected: n === st.perPage || null }, `${n} foto per pagina`)));
+    const pl = h('input', { id: 'r-pl', type: 'checkbox', checked: true });
+    const red = h('input', { id: 'r-red', value: st.firma || (MODE === 'drive' ? Auth.user?.name || '' : CONFIG.INTESTAZIONE_DEFAULT) });
+    const inte = h('input', { id: 'r-int', value: cant.data.intestazione ?? CONFIG.INTESTAZIONE_DEFAULT });
+    const ok = await modal({ title: 'Rapporto fotografico', body: h('div', { class: 'form' }, field('Impaginazione', per), h('label', { class: 'check' }, pl, 'Includi la planimetria con i punti di ripresa'), field('Redatto da', red), field('Intestazione', inte, 'Si cambia in modo permanente dai dati del cantiere')),
+      actions: [{ label: 'Annulla', value: false }, { label: 'Crea PDF', kind: 'primary', icon: 'file', value: true }] });
+    if (!ok) return;
+    Settings.set({ perPage: +per.value });
+    const b = busy('Preparazione del rapporto…');
+    try {
+      const blob = await buildReport({ cant, grp, fotos, piante, perPage: +per.value, withPlans: pl.checked, redattore: red.value.trim(), intestazione: inte.value.trim(), contatti: cant.data.contatti ?? CONFIG.CONTATTI_DEFAULT, onProgress: (t, f) => b.set(t, f) });
+      b.close();
+      const name = `Rapporto_${slug(cant.data.nome)}_${slug(grp.data.titolo)}_${grp.data.data || todayISO()}.pdf`;
+      reportResult(blob, name);
+    } catch (e) { console.error(e); b.close(); toast('Rapporto non creato: ' + e.message, 'err'); }
+  }
+  async function reportResult(blob, name) {
+    const file = new File([blob], name, { type: 'application/pdf' });
+    const kb = Math.round(blob.size / 1024);
+    const acts = [];
+    if (canShareFiles()) acts.push({ label: 'Condividi / Stampa', icon: 'share', kind: 'primary', onClick: () => { navigator.share({ files: [file], title: name }).catch(() => {}); return false; } });
+    if (!IN_ARTIFACT) acts.push({ label: 'Apri', icon: 'file', onClick: () => { window.open(URL.createObjectURL(blob), '_blank'); return false; } });
+    acts.push({ label: IN_ARTIFACT ? 'Scarica PDF' : 'Scarica', icon: 'download', kind: IN_ARTIFACT ? 'primary' : '', onClick: () => { saveOrShare(blob, name); return false; } });
+    if (MODE === 'drive' && !READONLY) acts.push({ label: 'Salva su Drive', icon: 'cloud', onClick: async () => { await Store.create('report', grp.id, { nome: name }, blob); toast('Il rapporto verrà salvato nella cartella del gruppo'); return false; } });
+    acts.push({ label: 'Chiudi', value: null });
+    await modal({ title: 'Rapporto pronto', body: h('p', { class: 'modal-text' }, `${name} · ${kb} KB. Per stamparlo aprilo e usa la stampa del telefono o del computer.`), actions: acts });
+  }
+  async function more() {
+    const items = [];
+    if (canShareFiles() && fotos?.length) items.push({ icon: 'download', label: 'Salva le foto sul telefono', value: 'share' });
+    if (!READONLY) items.push({ icon: 'edit', label: 'Modifica titolo e descrizione', value: 'edit' }, { icon: 'trash', label: 'Elimina gruppo', value: 'del', kind: 'danger' });
+    if (!items.length) return;
+    const a = await sheet(grp.data.titolo, items);
+    if (a === 'share') {
+      const b = busy('Preparazione delle foto…'); const files = [];
+      try { for (const f of fotos) { files.push(new File([await Store.getBlob(f)], `${slug(grp.data.titolo)}_${String(f.n).padStart(3, '0')}.jpg`, { type: 'image/jpeg' })); b.set(`Foto ${files.length} di ${fotos.length}`, files.length / fotos.length); } }
+      catch (e) { b.close(); return toast('Alcune foto non sono disponibili senza rete', 'err'); }
+      b.close();
+      await modal({ title: `${files.length} foto pronte`, body: h('p', { class: 'modal-text' }, 'Scegli «Salva immagini» (iPhone) o la Galleria / File (Android).'), actions: [{ label: 'Annulla', value: null }, { label: 'Salva sul telefono', kind: 'primary', icon: 'download', onClick: () => { navigator.share({ files }).catch(() => {}); } }] });
+    }
+    if (a === 'edit') {
+      const t = h('input', { id: 'ge-t', value: grp.data.titolo }), d = h('input', { id: 'ge-d', type: 'date', value: grp.data.data || '' }), ds = h('textarea', { id: 'ge-ds' }); ds.value = grp.data.descrizione || '';
+      if (await modal({ title: 'Modifica gruppo', body: h('div', { class: 'form' }, field('Titolo', t), field('Data', d), field('Descrizione', ds)), actions: [{ label: 'Annulla', value: false }, { label: 'Salva', kind: 'primary', onClick: () => !!t.value.trim() || (toast('Indica un titolo', 'err'), false) }] })) {
+        await Store.update(grp, { titolo: t.value.trim(), data: d.value || grp.data.data, descrizione: ds.value.trim() });
+        titleEl.textContent = grp.data.titolo; renderDesc(); toast('Modifiche salvate');
+      }
+    }
+    if (a === 'del' && await confirmBox('Eliminare il gruppo?', `Verranno eliminate anche le ${fotos?.length || 0} foto del gruppo.${MODE === 'drive' ? ' Su Google Drive finiscono nel cestino.' : ''}`, 'Elimina', true)) { await Store.remove(grp); Nav.back(); }
+  }
+  return { el, onShow: () => load(false), onStore: () => load(true), destroy: () => pv?.destroy() };
+}
+
+/* ---------- Scatto: punto sulla planimetria + foto ---------- */
+function ScattoView(cant, grp) {
+  let piante = null, sel = null, point = null, dirMode = false, pv = null; const shots = [];
+  const lastKey = 'fc_lastp_' + Store.resolve(cant.id);
+  const chips = h('div', { class: 'chips' });
+  const planBox = h('div');
+  const hint = h('p', { class: 'hint' });
+  const dirBtn = h('button', { class: 'btn small', type: 'button', onclick: () => { dirMode = !dirMode; paint(); } });
+  const clrBtn = h('button', { class: 'btn small', type: 'button', onclick: () => { if (point) { point.ang = null; paint(); } } }, 'Togli direzione');
+  const newBtn = h('button', { class: 'btn small', type: 'button', onclick: () => { point = null; dirMode = false; paint(); } }, 'Nuovo punto');
+  const nota = h('input', { id: 's-nota', placeholder: 'Es. Parete nord cucina, tracce impianto', autocomplete: 'off' });
+  const stripLbl = h('div', { class: 'section-label' });
+  const strip = h('div', { class: 'strip' });
+  const camBtn = h('button', { class: 'btn primary big grow', type: 'button', onclick: () => take(true) }, icon('camera'), 'Scatta');
+  const galBtn = h('button', { class: 'btn big', type: 'button', onclick: () => take(false) }, icon('image'), 'Galleria');
+  const el = h('div', null,
+    AppBar({ title: 'Punto di ripresa', sub: grp.data.titolo }),
+    h('main', { class: 'main gut' }, chips, planBox, hint, h('div', { class: 'btn-row' }, dirBtn, clrBtn, newBtn),
+      field('Nota per le prossime foto (facoltativa)', nota, 'Resta valida finché non la cambi; ogni foto si può correggere dopo.'),
+      stripLbl, strip),
+    actionBar(galBtn, camBtn));
+  function paint() {
+    const hasPlan = !!sel;
+    dirBtn.hidden = clrBtn.hidden = newBtn.hidden = !hasPlan || !point;
+    dirBtn.replaceChildren(icon('compass'), dirMode ? 'Fatto' : 'Indica direzione');
+    dirBtn.className = 'btn small' + (dirMode ? ' primary' : '');
+    clrBtn.hidden = clrBtn.hidden || point?.ang == null;
+    if (!hasPlan) hint.replaceChildren(icon('pin'), h('span', null, piante && !piante.length ? 'Questo cantiere non ha planimetrie: le foto verranno salvate senza punto. Puoi aggiungerne una dalla scheda del cantiere.' : 'Foto senza punto sulla planimetria.'));
+    else if (!point) hint.replaceChildren(icon('pin'), h('span', null, h('b', null, 'Tocca la planimetria'), ' nel punto in cui ti trovi. Con due dita o con + puoi ingrandire.'));
+    else if (dirMode) hint.replaceChildren(icon('compass'), h('span', null, h('b', null, 'Tocca verso dove punti il telefono.'), ' Poi premi «Fatto».'));
+    else hint.replaceChildren(icon('check'), h('span', null, h('b', null, 'Punto fissato.'), ' Scatta quante foto vuoi da qui. Per spostarlo tocca di nuovo la pianta.'));
+    camBtn.classList.toggle('waiting', !!sel && !point); galBtn.classList.toggle('waiting', !!sel && !point);
+    pv?.setPoints(point ? [{ x: point.x, y: point.y, label: '', active: true, dirs: point.ang != null ? [{ ang: point.ang }] : [] }] : []);
+    stripLbl.textContent = shots.length ? `Foto scattate qui: ${shots.length}` : '';
+    stripLbl.hidden = !shots.length;
+  }
+  function renderChips() {
+    const all = [...(piante || []).map(p => ({ id: p.id, label: p.data.label, p })), { id: null, label: 'Senza planimetria' }];
+    chips.replaceChildren(...all.map(o => h('button', { class: 'chip', type: 'button', 'aria-pressed': (sel ? sel.id === o.id : o.id === null), onclick: () => choose(o.p || null) }, o.label)));
+  }
+  function choose(p) {
+    sel = p; point = null; dirMode = false; pv?.destroy(); pv = null;
+    if (p) { Settings.lsSet(lastKey, Store.resolve(p.id)); pv = PlanView({ pianta: p, interactive: true, height: '48vh', onTap }); planBox.replaceChildren(pv.el); }
+    else planBox.replaceChildren();
+    renderChips(); paint();
+  }
+  function onTap(x, y, W, H) {
+    if (dirMode && point) { const dx = (x - point.x) * W, dy = (y - point.y) * H; if (Math.hypot(dx, dy) < 4) return; point.ang = Math.round((Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360); }
+    else { point = { x: +x.toFixed(5), y: +y.toFixed(5), ang: point?.ang ?? null }; }
+    paint();
+  }
+  async function take(camera) {
+    if (sel && !point) { toast('Prima tocca la planimetria nel punto in cui ti trovi', 'err'); planBox.scrollIntoView({ behavior: 'smooth', block: 'center' }); hint.classList.remove('flash'); void hint.offsetWidth; hint.classList.add('flash'); return; }
+    const files = await pickFiles({ accept: 'image/*', capture: camera ? 'environment' : null, multiple: !camera });
+    if (!files.length) return;
+    const st = Settings.get(); const b = files.length > 1 ? busy('Salvataggio foto…') : null;
+    try {
+      for (let i = 0; i < files.length; i++) {
+        b?.set(`Foto ${i + 1} di ${files.length}`, (i + 1) / files.length);
+        const r = await resizeToJpeg(files[i], st.latoMax, st.qualita);
+        const taken = new Date(camera ? Date.now() : (files[i].lastModified || Date.now())).toISOString();
+        const data = { taken, pianta: sel ? sel.id : null, x: sel && point ? point.x : null, y: sel && point ? point.y : null, ang: sel && point ? point.ang : null, nota: nota.value.trim(), autore: st.firma || (MODE === 'drive' ? Auth.user?.name || Auth.user?.email || '' : CONFIG.INTESTAZIONE_DEFAULT) };
+        const ent = await Store.create('foto', grp.id, data, r.blob);
+        await Store.putThumb(ent, r.blob); shots.push(ent);
+        const im = h('img', { alt: '' }); Store.thumbURL(ent).then(u => im.src = u);
+        strip.prepend(h('div', { class: 'tile' }, im, h('span', { class: 'num' }, shots.length)));
+      }
+      b?.close(); toast(files.length > 1 ? `${files.length} foto salvate` : 'Foto salvata'); paint();
+    } catch (e) { b?.close(); toast('Foto non salvata: ' + e.message, 'err'); }
+  }
+  async function load() {
+    piante = (await Store.cachedList('pianta', cant.id)) || null;
+    if (!piante) { try { piante = await Store.list('pianta', cant.id); } catch { piante = []; } }
+    piante.sort((a, b) => String(a.created).localeCompare(String(b.created)));
+    const last = Settings.lsGet(lastKey);
+    choose(piante.find(p => Store.resolve(p.id) === last) || piante[0] || null);
+  }
+  let loaded = false;
+  return { el, onShow: () => { if (!loaded) { loaded = true; load(); } }, destroy: () => pv?.destroy() };
+}
+
+/* ---------- Foto singola ---------- */
+function FotoView(cant, grp, fotos, idx) {
+  let f = fotos[idx], pv = null, editPoint = null, piante = [];
+  const img = h('img', { alt: '' });
+  const wrap = h('div', { class: 'photo-wrap' }, img);
+  const pos = h('span', { class: 'pos' });
+  const prev = h('button', { class: 'btn small', type: 'button', onclick: () => go(-1) }, icon('left'), 'Prec.');
+  const next = h('button', { class: 'btn small', type: 'button', onclick: () => go(1) }, 'Succ.', icon('right'));
+  const info = h('div', { class: 'card info-grid' });
+  const nota = h('textarea', { id: 'f-nota', placeholder: 'Descrizione della foto', readonly: READONLY || null });
+  const saveN = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: async () => { await Store.update(f, { nota: nota.value.trim() }); saveN.disabled = true; toast('Nota salvata'); } }, icon('check'), 'Salva nota');
+  nota.addEventListener('input', () => { saveN.disabled = nota.value.trim() === (f.data.nota || ''); });
+  const planBox = h('div', { class: 'form' });
+  const titleEl = h('h1', { class: 'bar-title' });
+  const bar = AppBar({ title: '', sub: grp.data.titolo, actions: READONLY ? [] : [iconBtn('trash', 'Elimina foto', del)] });
+  bar.querySelector('.bar-title').replaceWith(titleEl);
+  const el = h('div', null, bar, h('main', { class: 'main gut no-bar' }, h('div', { class: 'pager' }, prev, pos, next), wrap, field('Nota', nota), READONLY ? null : h('div', { class: 'btn-row' }, saveN), info, planBox));
+  function go(d) { const n = idx + d; if (n < 0 || n >= fotos.length) return; idx = n; f = fotos[idx]; render(); window.scrollTo(0, 0); }
+  function render() {
+    titleEl.textContent = `Foto n. ${f.n}`; pos.textContent = `${idx + 1} / ${fotos.length}`;
+    prev.disabled = idx === 0; next.disabled = idx === fotos.length - 1;
+    img.removeAttribute('src'); img.alt = `Foto ${f.n}`;
+    Store.fullURL(f).then(u => { if (fotos[idx] === f) img.src = u; }).catch(() => { wrap.replaceChildren(h('div', { class: 'plan-msg', style: 'position:static;color:#9aa6b2' }, 'Foto non disponibile senza rete')); });
+    if (!wrap.contains(img)) wrap.replaceChildren(img);
+    nota.value = f.data.nota || ''; saveN.disabled = true;
+    const p = piante.find(x => Store.same(x.id, f.data.pianta));
+    info.replaceChildren(h('dt', null, 'Scattata'), h('dd', { class: 'mono' }, fmtDateTime(f.data.taken)), h('dt', null, 'Autore'), h('dd', null, f.data.autore || '—'),
+      h('dt', null, 'Planimetria'), h('dd', null, p ? p.data.label : (f.data.pianta ? 'non disponibile' : 'nessun punto')),
+      h('dt', null, 'Stato'), h('dd', null, f.error ? 'Errore di caricamento: ' + f.error : f.pending ? 'In attesa di caricamento' : (MODE === 'drive' ? 'Archiviata su Google Drive' : 'Salvata sul dispositivo')));
+    renderPlan(p);
+  }
+  function renderPlan(p) {
+    pv?.destroy(); pv = null; editPoint = null;
+    if (!p) return planBox.replaceChildren();
+    const pt = () => ({ x: (editPoint || f.data).x, y: (editPoint || f.data).y, label: String(f.n), active: !!editPoint, dirs: (editPoint || f.data).ang != null ? [{ ang: +(editPoint || f.data).ang }] : [] });
+    let dirMode = false;
+    const editBtn = h('button', { class: 'btn small', type: 'button' }, icon('pin'), 'Sposta punto');
+    const dirBtn = h('button', { class: 'btn small', type: 'button', hidden: true }, icon('compass'), 'Direzione');
+    const saveBtn = h('button', { class: 'btn small primary', type: 'button', hidden: true }, icon('check'), 'Salva punto');
+    const tip = h('p', { class: 'hint', hidden: true }, icon('pin'), h('span', null, 'Tocca la pianta per spostare il punto.'));
+    pv = PlanView({ pianta: p, points: f.data.x != null ? [pt()] : [], height: '42vh', interactive: !READONLY, onTap: (x, y, W, H) => {
+      if (!editPoint) return;
+      if (dirMode) { const dx = (x - editPoint.x) * W, dy = (y - editPoint.y) * H; editPoint.ang = Math.round((Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360); }
+      else { editPoint.x = +x.toFixed(5); editPoint.y = +y.toFixed(5); }
+      pv.setPoints([pt()]);
+    } });
+    editBtn.onclick = () => { editPoint = { x: f.data.x ?? 0.5, y: f.data.y ?? 0.5, ang: f.data.ang ?? null }; editBtn.hidden = true; dirBtn.hidden = saveBtn.hidden = tip.hidden = false; pv.setPoints([pt()]); };
+    dirBtn.onclick = () => { dirMode = !dirMode; dirBtn.className = 'btn small' + (dirMode ? ' primary' : ''); tip.lastChild.textContent = dirMode ? 'Tocca verso dove era puntato il telefono.' : 'Tocca la pianta per spostare il punto.'; };
+    saveBtn.onclick = async () => { await Store.update(f, { x: editPoint.x, y: editPoint.y, ang: editPoint.ang }); toast('Punto aggiornato'); renderPlan(p); };
+    planBox.replaceChildren(h('div', { class: 'section-label' }, 'Punto di ripresa'), pv.el, tip, READONLY ? null : h('div', { class: 'btn-row' }, editBtn, dirBtn, saveBtn));
+  }
+  async function del() {
+    if (!await confirmBox(`Eliminare la foto n. ${f.n}?`, MODE === 'drive' ? 'La foto va nel cestino di Google Drive.' : 'La foto verrà eliminata dal dispositivo.', 'Elimina', true)) return;
+    await Store.remove(f); toast('Foto eliminata'); Nav.back();
+  }
+  let loaded = false;
+  return { el, onShow: async () => { if (!loaded) { loaded = true; piante = (await Store.cachedList('pianta', cant.id)) || []; render(); } }, destroy: () => pv?.destroy() };
+}
+
+/* ---------- Impostazioni e coda ---------- */
+function SettingsView() {
+  const st = Settings.get();
+  const firma = h('input', { id: 'st-firma', value: st.firma, placeholder: MODE === 'drive' ? (Auth.user?.name || '') : CONFIG.INTESTAZIONE_DEFAULT });
+  const lato = h('select', { id: 'st-lato' }, [[1600, 'Leggera (1600 px)'], [2048, 'Standard (2048 px)'], [2560, 'Alta (2560 px)'], [3200, 'Massima (3200 px)']].map(([v, l]) => h('option', { value: v, selected: +st.latoMax === v || null }, l)));
+  const save = () => { Settings.set({ firma: firma.value.trim(), latoMax: +lato.value }); toast('Impostazioni salvate'); };
+  firma.addEventListener('change', save); lato.addEventListener('change', save);
+  const queue = h('div', { class: 'card' });
+  const offl = h('input', { id: 'st-off', type: 'checkbox', checked: Store.forceOffline || null, onchange: e => { Store.forceOffline = e.target.checked; if (!e.target.checked) { Store.status.net = 'ok'; Store.kick(); } else Store.noteNet({ offline: true }); Store.emit(); } });
+  const acct = MODE === 'drive' ? h('div', { class: 'card info-grid' }, h('dt', null, 'Account'), h('dd', null, Auth.user?.email || '—'), h('dt', null, 'Archivio'), h('dd', null, 'Google Drive'), h('dt', null, 'Accesso'), h('dd', null, Auth.valid() ? 'attivo' : 'scaduto: serve un nuovo accesso per caricare')) : null;
+  const el = h('div', null, AppBar({ title: 'Impostazioni', chip: false }),
+    h('main', { class: 'main gut no-bar' },
+      h('div', { class: 'section-label' }, 'Caricamenti'), queue,
+      h('div', { class: 'section-label' }, 'Foto e rapporti'),
+      h('div', { class: 'card form', style: 'padding:14px' }, field('Firma / autore delle foto', firma, 'Compare sulle foto e nel campo «Redatto da» del rapporto'), field('Qualità delle foto archiviate', lato, 'Più alta = più dettaglio ma caricamenti più lenti')),
+      MODE === 'drive' ? [h('div', { class: 'section-label' }, 'Account'), acct,
+        h('div', { class: 'btn-row' }, !Auth.valid() ? h('button', { class: 'btn primary', type: 'button', onclick: () => Auth.start() }, 'Accedi di nuovo') : null,
+          h('button', { class: 'btn danger', type: 'button', onclick: async () => { if (Store.status.pending && !await confirmBox('Ci sono elementi non caricati', 'Se esci ora restano sul telefono e verranno caricati al prossimo accesso con lo stesso account.', 'Esci comunque', true)) return; Auth.signOut(); Nav.reset(() => LoginView()); } }, 'Esci'))] : null,
+      h('div', { class: 'section-label' }, 'Spazio sul telefono'),
+      h('div', { class: 'card', style: 'padding:14px;display:grid;gap:10px' }, h('p', { class: 'modal-text' }, MODE === 'drive' ? 'L\'app tiene una copia delle foto già viste per usarle anche senza rete. Puoi liberare spazio: le foto restano su Google Drive.' : 'In modalità prova le foto esistono solo su questo dispositivo.'),
+        MODE === 'drive' ? h('button', { class: 'btn', type: 'button', onclick: async () => { await Store.clearCache(); toast('Copie locali eliminate'); } }, 'Libera spazio') : null),
+      MODE === 'demo' ? [h('div', { class: 'section-label' }, 'Modalità prova'),
+        h('div', { class: 'card', style: 'padding:14px;display:grid;gap:12px' },
+          h('label', { class: 'check' }, offl, 'Simula assenza di rete'),
+          h('p', { class: 'modal-text' }, 'Con la rete simulata spenta vedi come l\'app mette in coda le foto e le carica appena torna la connessione.'),
+          h('button', { class: 'btn danger', type: 'button', onclick: async () => { if (await confirmBox('Ripristinare i dati di esempio?', 'Tutti i dati di prova su questo dispositivo verranno cancellati.', 'Ripristina', true)) { await resetDemo(); Nav.reset(() => HomeView()); } } }, 'Ripristina dati di esempio'))] : null,
+      h('p', { class: 'hint', style: 'justify-content:center' }, 'Foto Cantiere · versione 1.0')));
+  async function renderQueue() {
+    const ops = await Store.ops(); const i = syncInfo();
+    if (!ops.length) return queue.replaceChildren(h('div', { class: 'empty' }, h('strong', null, 'Nessun elemento in attesa'), MODE === 'drive' ? 'Tutto è archiviato su Google Drive.' : 'In modalità prova tutto resta sul dispositivo.'));
+    const label = op => { const k = { cantiere: 'Cantiere', gruppo: 'Gruppo', pianta: 'Planimetria', foto: 'Foto', report: 'Rapporto' }[op.kind] || op.kind; const t = { create: 'nuovo', update: 'modifica', remove: 'eliminazione' }[op.type]; return `${k} · ${t}`; };
+    queue.replaceChildren(
+      h('div', { class: 'queue-item' }, h('strong', null, i.t), h('span', { style: 'color:var(--muted)' }, Store.status.net === 'auth' ? 'L\'accesso a Google è scaduto: accedi di nuovo per riprendere i caricamenti.' : Store.status.net === 'offline' ? 'I caricamenti ripartono da soli quando torna la rete.' : 'Gli elementi vengono caricati nell\'ordine in cui li hai creati.'),
+        Store.status.net === 'auth' ? h('button', { class: 'btn primary small', type: 'button', onclick: () => Auth.start() }, 'Accedi di nuovo') : h('button', { class: 'btn small', type: 'button', onclick: () => Store.kick() }, 'Riprova ora')),
+      ...ops.slice(0, 30).map(op => h('div', { class: 'queue-item' }, h('div', null, h('strong', null, label(op)), ' ', h('span', { class: 'mono', style: 'color:var(--muted);font-size:12px' }, fmtDateTime(op.time))),
+        op.error ? [h('div', { class: 'err' }, op.error), h('div', { class: 'btn-row' }, h('button', { class: 'btn small', type: 'button', onclick: () => Store.retry(op) }, 'Riprova'), h('button', { class: 'btn small danger', type: 'button', onclick: async () => { if (await confirmBox('Annullare questa operazione?', op.type === 'create' ? 'L\'elemento non verrà caricato e sarà eliminato dal telefono.' : 'L\'operazione non verrà eseguita.', 'Annulla operazione', true)) Store.discard(op); } }, 'Annulla operazione'))] : null)),
+      ops.length > 30 ? h('div', { class: 'queue-item' }, `… e altri ${ops.length - 30}`) : null);
+  }
+  return { el, onShow: renderQueue, onStore: renderQueue };
+}
+
+/* =====================================================================
+   Dati di esempio (solo modalità prova) e avvio
+   ===================================================================== */
+function drawDemoPlan() {
+  const W = 2000, H = 1300, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
+  x.strokeStyle = '#222'; x.lineCap = 'square';
+  const wall = (pts, w) => { x.lineWidth = w; x.beginPath(); pts.forEach(([a, b], i) => i ? x.lineTo(a, b) : x.moveTo(a, b)); x.stroke(); };
+  wall([[150, 150], [1850, 150], [1850, 1150], [150, 1150], [150, 150]], 22);
+  wall([[950, 150], [950, 520]], 12); wall([[950, 660], [950, 1150]], 12);
+  wall([[950, 600], [1400, 600]], 12); wall([[1520, 600], [1850, 600]], 12);
+  wall([[1350, 150], [1350, 380]], 10); wall([[1350, 470], [1350, 600]], 10);
+  wall([[150, 760], [480, 760]], 12); wall([[600, 760], [950, 760]], 12);
+  x.lineWidth = 3; x.strokeStyle = '#555';
+  const door = (cx, cy, r, a0, a1) => { x.beginPath(); x.arc(cx, cy, r, a0, a1); x.stroke(); };
+  door(950, 520, 140, Math.PI / 2, Math.PI); door(1400, 600, 120, Math.PI, 1.5 * Math.PI); door(480, 760, 120, -Math.PI / 2, 0); door(1350, 380, 90, 0, Math.PI / 2);
+  x.fillStyle = '#9fc3e6'; [[400, 150, 260], [1550, 150, 200], [1850, 800, 220], [600, 1150, 260]].forEach(([a, b, l]) => { if (b === 150 || b === 1150) x.fillRect(a, b - 8, l, 16); else x.fillRect(a - 8, b, 16, l); });
+  x.fillStyle = '#333'; x.font = '600 46px Helvetica, Arial, sans-serif'; x.textAlign = 'center';
+  [['Soggiorno', 550, 450], ['Camera', 550, 980], ['Cucina', 1150, 380], ['Bagno', 1600, 380], ['Camera', 1400, 900]].forEach(([t, a, b]) => x.fillText(t, a, b));
+  x.font = '30px Helvetica, Arial, sans-serif'; x.fillStyle = '#666';
+  [['31,5 m²', 550, 500], ['16,8 m²', 550, 1030], ['14,2 m²', 1150, 430], ['6,1 m²', 1600, 430], ['18,0 m²', 1400, 950]].forEach(([t, a, b]) => x.fillText(t, a, b));
+  x.textAlign = 'left'; x.font = '600 34px Helvetica, Arial, sans-serif'; x.fillStyle = '#b00'; x.fillText('ESEMPIO — PIANTA PIANO TERRA (non in scala)', 150, 100);
+  x.strokeStyle = '#222'; x.lineWidth = 4; x.beginPath(); x.moveTo(1780, 1270); x.lineTo(1780, 1190); x.stroke();
+  x.beginPath(); x.moveTo(1765, 1210); x.lineTo(1780, 1185); x.lineTo(1795, 1210); x.fill(); x.font = '600 28px Helvetica, Arial'; x.fillStyle = '#222'; x.fillText('N', 1805, 1215);
+  return canvasToBlob(c, 'image/jpeg', 0.9);
+}
+function drawDemoPhoto(n, title, hue) {
+  const W = 1600, H = 1200, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, `hsl(${hue},12%,78%)`); g.addColorStop(0.62, `hsl(${hue},10%,68%)`); g.addColorStop(0.63, `hsl(${hue + 20},14%,48%)`); g.addColorStop(1, `hsl(${hue + 20},12%,36%)`);
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  x.strokeStyle = 'rgba(0,0,0,.18)'; x.lineWidth = 3;
+  for (let i = 0; i < 9; i++) { x.beginPath(); x.moveTo(200 + i * 140, 760); x.lineTo(-400 + i * 300, H); x.stroke(); }
+  x.fillStyle = 'rgba(255,255,255,.35)'; x.fillRect(980, 180, 360, 420); x.strokeStyle = 'rgba(0,0,0,.35)'; x.lineWidth = 10; x.strokeRect(980, 180, 360, 420);
+  x.strokeStyle = '#c2410c'; x.lineWidth = 14; x.beginPath(); x.moveTo(260, 740); x.lineTo(260, 330); x.lineTo(720, 330); x.stroke();
+  x.fillStyle = 'rgba(15,20,25,.72)'; x.fillRect(0, 0, W, 170);
+  x.fillStyle = '#fff'; x.font = '700 64px Helvetica, Arial, sans-serif'; x.fillText(`FOTO DI ESEMPIO ${n}`, 60, 100);
+  x.font = '36px Helvetica, Arial, sans-serif'; x.fillStyle = '#f2b705'; x.fillText(title, 60, 150);
+  return canvasToBlob(c, 'image/jpeg', 0.85);
+}
+async function seedDemo() {
+  if (await IDB.get('kv', 'demoSeeded')) return;
+  const c = await Local.create('cantiere', ROOT_ID, { nome: 'Esempio – Ristrutturazione appartamento', indirizzo: 'Indirizzo di prova', committente: 'Committente di prova', intestazione: CONFIG.INTESTAZIONE_DEFAULT, contatti: CONFIG.CONTATTI_DEFAULT });
+  const pb = await drawDemoPlan();
+  const p = await Local.create('pianta', c.id, { label: 'Piano terra (esempio)' }, pb);
+  const g = await Local.create('gruppo', c.id, { titolo: 'Sopralluogo impianti (esempio)', data: todayISO(), descrizione: 'Gruppo di prova creato per mostrare come funziona l\'app: punti sulla planimetria, direzione di ripresa, note e rapporto PDF. Puoi eliminarlo.' });
+  const base = Date.now() - 3600 * 1000;
+  const shots = [
+    [0.33, 0.42, 90, 'Esempio: parete soggiorno, tracce impianto elettrico', 210],
+    [0.33, 0.42, 180, 'Esempio: stesso punto, vista verso la camera', 210],
+    [0.57, 0.27, 0, 'Esempio: cucina, attacchi idraulici da spostare', 30],
+    [0.79, 0.28, 270, 'Esempio: bagno, scarico esistente', 190],
+    [0.70, 0.70, 0, 'Esempio: camera, finestra lato est', 120],
+  ];
+  for (let i = 0; i < shots.length; i++) {
+    const [px, py, ang, nota, hue] = shots[i];
+    await Local.create('foto', g.id, { taken: new Date(base + i * 240000).toISOString(), pianta: p.id, x: px, y: py, ang, nota, autore: CONFIG.INTESTAZIONE_DEFAULT }, await drawDemoPhoto(i + 1, nota.replace('Esempio: ', ''), hue));
+  }
+  await IDB.put('kv', 'demoSeeded', true);
+}
+async function resetDemo() {
+  for (const s of ['ents', 'queue', 'kv', 'blobs']) await IDB.clear(s);
+  Store.idmap = {}; Store.urls.clear(); await Store.refreshStatus(); await seedDemo();
+}
+
+async function boot() {
+  let raf = false;
+  Store.on(() => { paintChips(); if (raf) return; raf = true; setTimeout(() => { raf = false; paintChips(); Nav.top()?.onStore?.(); }, 60); });
+  if (MODE === 'demo') {
+    await seedDemo(); await Store.init(); Nav.reset(() => HomeView()); return;
+  }
+  Auth.load();
+  const red = Auth.readRedirect();
+  if (red?.error) return Nav.reset(() => LoginView(red.error));
+  if (red?.ok) {
+    $('#app').replaceChildren(h('div', { class: 'spin' }));
+    try {
+      const user = await Drive.whoami();
+      if (CONFIG.ALLOWED_EMAILS.length && !CONFIG.ALLOWED_EMAILS.map(e => e.toLowerCase()).includes(user.email)) { Auth.signOut(); return Nav.reset(() => LoginView(`L'account ${user.email} non è tra quelli autorizzati.`)); }
+      const root = await Drive.rootInfo();
+      if (!root) { Auth.signOut(); return Nav.reset(() => LoginView(`L'account ${user.email} non ha accesso all'archivio. Chiedi all'amministratore di condividere con te la cartella Google Drive.`)); }
+      if (Auth.user && Auth.user.email !== user.email) { await Store.clearCache(); for (const k of await IDB.keys('kv')) if (String(k).startsWith('list:')) await IDB.del('kv', k); }
+      Auth.user = { ...user, readonly: !root.capabilities?.canAddChildren }; Auth.save();
+    } catch (e) { return Nav.reset(() => LoginView('Verifica dell\'accesso non riuscita: ' + e.message)); }
+  }
+  if (!Auth.user) return Nav.reset(() => LoginView());
+  READONLY = !!Auth.user.readonly;
+  await Store.init();
+  Nav.reset(() => HomeView());
+}
+
+window.addEventListener('error', e => console.error(e.error || e.message));
+window.addEventListener('unhandledrejection', e => { console.error(e.reason); });
+if ('serviceWorker' in navigator && !IN_ARTIFACT && location.protocol === 'https:' && MODE === 'drive') navigator.serviceWorker.register('sw.js').catch(() => {});
+boot().catch(e => { console.error(e); $('#app').replaceChildren(h('div', { class: 'main gut' }, h('div', { class: 'notice err' }, h('strong', null, 'Avvio non riuscito. '), e.message))); });
+
+</script>
+</body>
+</html>
