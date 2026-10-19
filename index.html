@@ -262,6 +262,11 @@ mark { background: color-mix(in srgb, var(--signal) 45%, transparent); color: in
 </style>
 
 <style>
+.fc-filters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:12px 0; }
+.fc-filters input,.fc-filters select,.fc-compare-controls select { width:100%; min-width:0; min-height:42px; border:1px solid var(--line,#ccc); border-radius:8px; padding:8px; background:var(--surface,#fff); color:var(--text,#111); }
+.fc-compare { margin:16px 0 36px; }.fc-compare-controls,.fc-compare-images { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:10px 0; }
+.fc-compare-images img { width:100%; aspect-ratio:4/3; object-fit:contain; background:#222; border-radius:8px; }
+@media(max-width:480px){.fc-filters {grid-template-columns:1fr}.fc-compare-controls{grid-template-columns:1fr}}
 .fc-camera-overlay { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.9); display:flex; align-items:center; justify-content:center; padding:12px; }
 .fc-camera-panel { width:min(100%,600px); display:grid; gap:12px; padding:12px; border-radius:16px; background:var(--surface,#fff); color:var(--text,#111); }
 .fc-camera-panel video { object-fit:contain; }
@@ -1988,7 +1993,7 @@ function FotoView(cant, grp, fotos, idx) {
   function renderPlan(p) {
     pv?.destroy(); pv = null; editPoint = null;
     if (!p) return planBox.replaceChildren();
-    const pt = () => ({ x: (editPoint || f.data).x, y: (editPoint || f.data).y, label: String(f.n), active: !!editPoint, dirs: (editPoint || f.data).ang != null ? [{ ang: +(editPoint || f.data).ang }] : [] });
+    const pt = () => ({ x: (editPoint || f.data).x, y: (editPoint || f.data).y, label: String(f.reference || f.n), active: !!editPoint, dirs: (editPoint || f.data).ang != null ? [{ ang: +(editPoint || f.data).ang }] : [] });
     let dirMode = false;
     const editBtn = h('button', { class: 'btn small', type: 'button' }, icon('pin'), 'Sposta punto');
     const dirBtn = h('button', { class: 'btn small', type: 'button', hidden: true }, icon('compass'), 'Direzione');
@@ -2162,7 +2167,7 @@ function SearchView() {
     const f = it.foto.data;
     return h('button', { class: 'row', type: 'button', onclick: go }, th,
       h('div', { class: 'row-main' },
-        h('div', { class: 'row-title' }, `Foto n. ${it.foto.n}`, h('span', { class: 'res-sub' }, ` · ${it.grp.data.titolo}`)),
+        h('div', { class: 'row-title' }, `Foto n. ${it.foto.reference || it.foto.n}`, h('span', { class: 'res-sub' }, ` · ${it.grp.data.titolo}`)),
         f.nota ? h('div', { class: 'row-sub res-note' }, highlight(f.nota, terms)) : null,
         h('div', { class: 'row-sub' }, `${it.cant.data.nome} · ${fmtDateTime(f.taken)}`)),
       icon('chev', 'chev'));
@@ -2219,9 +2224,16 @@ function StoricoView(cant, pianta, focus) {
   const planBox = h('div');
   const status = h('p', { class: 'hint' });
   const timeline = h('div', { class: 'timeline' });
+  const visitFilter = h('select', { 'aria-label': 'Filtra per sopralluogo' });
+  const dateFrom = h('input', { type: 'date', 'aria-label': 'Dalla data' });
+  const dateTo = h('input', { type: 'date', 'aria-label': 'Alla data' });
+  const authorFilter = h('input', { placeholder: 'Filtra per autore', 'aria-label': 'Autore', type: 'search' });
+  const filterBox = h('div', { class: 'fc-filters' }, visitFilter, dateFrom, dateTo, authorFilter);
+  const compareBox = h('div', { class: 'fc-compare' });
+  [visitFilter, dateFrom, dateTo, authorFilter].forEach(el => el.addEventListener('input', () => { current = null; render(); }));
   const el = h('div', null,
     AppBar({ title: 'Storico dei punti', sub: cant.data.nome }),
-    h('main', { class: 'main gut no-bar' }, chips, planBox, status, timeline));
+    h('main', { class: 'main gut no-bar' }, chips, filterBox, planBox, status, timeline, compareBox));
   function paintChips() {
     chips.hidden = piante.length < 2;
     chips.replaceChildren(...piante.map(p => h('button', { class: 'chip', type: 'button', 'aria-pressed': Store.same(p.id, sel.id), onclick: () => { sel = p; current = null; focus = null; render(); } }, p.data.label)));
@@ -2229,7 +2241,13 @@ function StoricoView(cant, pianta, focus) {
   function pts() { return clusters.map(c => ({ x: c.x, y: c.y, label: c.label, dirs: [], selected: c === current, ref: c })); }
   function render() {
     paintChips();
-    clusters = data ? clusterPoints(data.items, sel.id) : [];
+    const visible = data ? data.items.filter(it => {
+      const date = it.grp.data.data || String(it.foto.data.taken || '').slice(0,10);
+      return (!visitFilter.value || it.grp.id === visitFilter.value) &&
+        (!dateFrom.value || date >= dateFrom.value) && (!dateTo.value || date <= dateTo.value) &&
+        (!authorFilter.value || String(it.foto.data.autore || '').toLowerCase().includes(authorFilter.value.trim().toLowerCase()));
+    }) : [];
+    clusters = clusterPoints(visible, sel.id);
     if (focus && clusters.length) {
       let best = null, bd = Infinity;
       for (const c of clusters) { const d = Math.hypot(c.x - focus.x, c.y - focus.y); if (d < bd) { bd = d; best = c; } }
@@ -2245,7 +2263,7 @@ function StoricoView(cant, pianta, focus) {
     status.replaceChildren(icon('clock'), h('span', null, !data ? 'Caricamento delle foto del cantiere…'
       : !clusters.length ? 'Su questa planimetria non ci sono ancora foto con il punto di ripresa.'
       : `${clusters.length} ${clusters.length === 1 ? 'punto' : 'punti'}, ${totFoto} foto. Tocca un punto per vedere tutte le foto scattate lì, dalla più vecchia alla più recente.`));
-    if (!current) return timeline.replaceChildren();
+    if (!current) { compareBox.replaceChildren(); return timeline.replaceChildren(); }
     // raggruppa per gruppo (sopralluogo), in ordine di data
     const byGrp = new Map();
     for (const it of current.items) { if (!byGrp.has(it.grp)) byGrp.set(it.grp, []); byGrp.get(it.grp).push(it.foto); }
@@ -2269,14 +2287,40 @@ function StoricoView(cant, pianta, focus) {
           }))));
     });
     timeline.replaceChildren(h('div', { class: 'card tl-card' }, head, h('div', { class: 'tl-list' }, items)));
+    compareBox.replaceChildren();
+    const candidates = [...current.items].sort((a,b)=>byTaken(a.foto,b.foto));
+    if (candidates.length < 2) return;
+    const one = h('select', { 'aria-label': 'Prima foto' });
+    const two = h('select', { 'aria-label': 'Seconda foto' });
+    const options = candidates.map((it,i) => h('option', { value: String(i) }, 'Foto ' + (it.foto.reference || it.foto.n) + ' · ' + fmtDateTime(it.foto.data.taken)));
+    one.append(...options.map(o=>o.cloneNode(true))); two.append(...options.map(o=>o.cloneNode(true)));
+    one.value = '0'; two.value = String(candidates.length - 1);
+    const pictures = h('div', { class: 'fc-compare-images' });
+    const update = () => {
+      pictures.replaceChildren(...[one,two].map(select => {
+        const it = candidates[+select.value], im = h('img', { alt: 'Foto ' + (it.foto.reference || it.foto.n) });
+        Store.fullURL(it.foto).then(u=>{im.src=u}).catch(()=>{im.alt='Foto non disponibile offline'});
+        return h('div', null, im, h('small', null, it.grp.data.titolo));
+      }));
+    };
+    one.onchange = two.onchange = update;
+    compareBox.append(h('h3', null, 'Confronto prima / dopo'), h('div', { class: 'fc-compare-controls' }, one, two), pictures);
+    update();
+  }
+  function updateVisitOptions() {
+    const selected = visitFilter.value;
+    const groups = data?.gruppi || [];
+    visitFilter.replaceChildren(h('option', { value: '' }, 'Tutti i sopralluoghi'),
+      ...groups.map(g => h('option', { value: g.id }, g.data.titolo + ' · ' + fmtDay(g.data.data))));
+    visitFilter.value = groups.some(g => g.id === selected) ? selected : '';
   }
   async function load() {
     piante = ((await Store.cachedList('pianta', cant.id)) || []).sort((a, b) => String(a.created).localeCompare(String(b.created)));
     if (!sel) sel = piante[0];
     if (!sel) { planBox.replaceChildren(h('div', { class: 'card empty' }, h('strong', null, 'Nessuna planimetria'), 'Carica una planimetria dalla scheda del cantiere.')); return; }
     render();
-    data = await cantiereFotos(cant, false); render();
-    if (navigator.onLine) { try { data = await cantiereFotos(cant, true); render(); } catch (e) { console.error(e); } }
+    data = await cantiereFotos(cant, false); updateVisitOptions(); render();
+    if (navigator.onLine) { try { data = await cantiereFotos(cant, true); updateVisitOptions(); render(); } catch (e) { console.error(e); } }
   }
   let loaded = false;
   return { el, route: { c: cant.id }, onShow: () => { if (!loaded) { loaded = true; load(); } }, destroy: () => pv?.destroy() };
