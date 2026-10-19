@@ -753,7 +753,14 @@ const Store = {
       if (this.isTemp(parent)) { await IDB.del('blobs', 'q:' + op.tempId); return; } // genitore eliminato prima del caricamento
       let blob = null;
       if (op.hasBlob) { blob = await IDB.get('blobs', 'q:' + op.tempId); if (!blob) throw new Error('Il file da caricare non è più sul telefono'); }
-      const ent = await B.create(op.kind, parent, this.resolveRefs(op.data), blob);
+      // Retry idempotente: se l'upload ha avuto successo ma la risposta si è persa,
+      // cerca prima la fotografia per identificativo immutabile.
+      let ent = null;
+      if (op.kind === 'foto' && op.data.photoUid && MODE === 'drive') {
+        const existing = await B.list('foto', parent);
+        ent = existing.find(f => f.data.photoUid === op.data.photoUid) || null;
+      }
+      if (!ent) ent = await B.create(op.kind, parent, this.resolveRefs(op.data), blob);
       this.idmap[op.tempId] = ent.id; await IDB.put('kv', 'idmap', this.idmap);
       if (blob) { await IDB.put('blobs', 'c:' + ent.id, blob); await IDB.del('blobs', 'q:' + op.tempId); }
       const t = await IDB.get('blobs', 't:' + op.tempId);
@@ -804,6 +811,15 @@ function numberFotos(fotos) {
   });
   let fallback = 0;
   sorted.forEach(f => { f.n = f.data.num != null ? +f.data.num : ++fallback; });
+  // I progressivi storici non si sovrascrivono. Un suffisso deterministico
+  // rende inequivocabili i duplicati provenienti da dispositivi offline.
+  const occurrences = new Map();
+  for (const f of sorted) occurrences.set(f.n, (occurrences.get(f.n) || 0) + 1);
+  for (const f of sorted) {
+    f.reference = occurrences.get(f.n) > 1
+      ? String(f.n) + ' · ' + String(f.data.photoUid || f.id).slice(-8)
+      : String(f.n);
+  }
   return sorted;
 }
 // Tutte le foto del cantiere, con il gruppo a cui appartengono.
@@ -819,6 +835,14 @@ async function cantiereFotos(cant, useNet) {
     grp.fotos = fotos;
     for (const f of fotos) out.push({ foto: f, grp });
   }));
+  // Ricontrollo su tutto il cantiere, non soltanto sul singolo sopralluogo.
+  const counts = new Map();
+  for (const { foto } of out) counts.set(foto.n, (counts.get(foto.n) || 0) + 1);
+  for (const { foto } of out) {
+    foto.reference = counts.get(foto.n) > 1
+      ? String(foto.n) + ' · ' + String(foto.data.photoUid || foto.id).slice(-8)
+      : String(foto.n);
+  }
   return { gruppi, items: out };
 }
 async function nextNumFor(cant) {
@@ -1901,7 +1925,7 @@ function FotoView(cant, grp, fotos, idx) {
   const el = h('div', null, bar, h('main', { class: 'main gut no-bar' }, h('div', { class: 'pager' }, prev, pos, next), wrap, field('Nota', nota), READONLY ? null : h('div', { class: 'btn-row' }, saveN), info, planBox));
   function go(d) { const n = idx + d; if (n < 0 || n >= fotos.length) return; idx = n; f = fotos[idx]; render(); window.scrollTo(0, 0); }
   function render() {
-    titleEl.textContent = `Foto n. ${f.n}`; pos.textContent = `${idx + 1} / ${fotos.length}`;
+    titleEl.textContent = `Foto n. ${f.reference || f.n}`; pos.textContent = `${idx + 1} / ${fotos.length}`;
     prev.disabled = idx === 0; next.disabled = idx === fotos.length - 1;
     img.removeAttribute('src'); img.alt = `Foto ${f.n}`;
     Store.fullURL(f).then(u => { if (fotos[idx] === f) img.src = u; }).catch(() => { wrap.replaceChildren(h('div', { class: 'plan-msg', style: 'position:static;color:#9aa6b2' }, 'Foto non disponibile senza rete')); });
