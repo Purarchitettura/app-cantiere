@@ -1,4 +1,4 @@
-# Foto Cantiere — guida all'attivazione
+# Foto Cantiere — guida
 
 App web installabile su iPhone e Android: si apre dal browser e si aggiunge alla schermata Home. Funziona come un'app, senza passare dagli store.
 
@@ -12,17 +12,42 @@ App web installabile su iPhone e Android: si apre dal browser e si aggiunge alla
 - **Rapporto fotografico PDF**: intestazione, dati del cantiere, descrizione e planimetria con i numeri delle foto e le frecce di direzione. Seguono le foto numerate con data, ora, autore e nota, impaginate a 2, 4 o 6 per pagina. In fondo c'è lo spazio per la firma. Il rapporto si condivide, si stampa o si salva nella cartella del gruppo su Drive.
 - **Archivio su Google Drive**: ogni cantiere è una cartella e ogni gruppo una sottocartella. Le foto sono file JPG normali, consultabili anche da Drive.
 
+## Configurazione attuale (in uso)
+
+| Voce | Valore |
+|---|---|
+| Indirizzo dell'app | https://purarchitettura.github.io/app-cantiere/ |
+| Informativa privacy | https://purarchitettura.github.io/app-cantiere/privacy.html |
+| Account Google proprietario | contact@purarchitettura.it |
+| Progetto Google Cloud | App cantiere (`app-cantiere-512109`), accesso **In produzione** |
+| Cartella archivio | «Foto Cantiere - Archivio» nel Drive di contact@purarchitettura.it |
+
 ## Chi può usarla
 
-Entra solo chi soddisfa **tutte e tre** le condizioni:
+L'accesso dipende **solo dalla condivisione della cartella archivio** su Google Drive:
 
-1. l'indirizzo email è tra gli **utenti di test** del progetto Google Cloud (passo 2);
-2. la **cartella Drive** dell'archivio è condivisa con quell'account (passo 3);
-3. l'indirizzo è nell'elenco `ALLOWED_EMAILS` del file `index.html`, se decidi di compilarlo. È facoltativo.
+- condivisa come **Editor**: la persona può consultare, scattare e caricare;
+- condivisa come **Visualizzatore**: la persona può solo consultare;
+- non condivisa: l'app rifiuta l'accesso, anche se la persona ha un account Google.
 
-Ogni utente deve avere un account Google (Gmail o Google Workspace). Chi ha la cartella condivisa come **Visualizzatore** può solo consultare. Chi la ha come **Editor** può anche scattare e caricare.
+**Aggiungere un utente**: nel Drive di contact@purarchitettura.it condividi la cartella «Foto Cantiere - Archivio» con la sua email. Non serve altro.
+**Togliere un utente**: rimuovi la condivisione. Le foto che ha già caricato restano nell'archivio.
 
-## Attivazione (una volta sola, circa 30 minuti)
+Ogni utente deve avere un account Google (Gmail o Google Workspace). Al primo accesso Google mostra l'avviso «Google non ha verificato questa app»: si prosegue con *Avanzate* → *Vai a App Cantiere*. L'avviso compare perché l'app è privata e non è stata sottoposta alla verifica di Google, che per un uso interno non serve. Google consente a un'app non verificata al massimo 100 utenti nuovi in tutto.
+
+## Aggiornamenti senza perdita di dati
+
+L'archivio è su Google Drive, fuori dall'app. Un aggiornamento cambia solo il codice e non può cancellare cantieri, gruppi, foto, planimetrie o rapporti. In particolare:
+
+- i dati di ogni elemento sono salvati su Drive insieme al file. Gli aggiornamenti li leggono così come sono: si aggiungono campi nuovi, non si rinominano né si eliminano quelli esistenti;
+- le foto in coda sul telefono, non ancora caricate, restano in coda anche dopo un aggiornamento e partono appena c'è rete;
+- le eliminazioni avvengono solo su tua richiesta e spostano nel cestino di Drive, da cui si recuperano per 30 giorni;
+- le regole da rispettare in ogni modifica futura sono scritte all'inizio del codice (`index.html`, sezione «Regole per gli aggiornamenti»);
+- **non cambiare** `ROOT_FOLDER_ID` in `index.html`: l'app mostrerebbe un archivio vuoto. I dati resterebbero comunque su Drive, ma andrebbero spostati.
+
+Per aggiornare: carica il nuovo `index.html` (ed eventuali altri file) nel repository con *Add file → Upload files*. Il telefono riceve la nuova versione alla prima apertura con rete. La versione in uso è indicata in fondo a Impostazioni.
+
+## Attivazione da zero (già fatta, serve solo per rifare l'impianto)
 
 ### 1. Pubblica i file su un indirizzo https gratuito
 

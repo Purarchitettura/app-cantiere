@@ -277,6 +277,29 @@ const CONFIG = {
   CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
 };
 const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
+const APP_VERSION = '2.0 operativa · 19/10/2026';
+
+/* =====================================================================
+   REGOLE PER GLI AGGIORNAMENTI (da rispettare in ogni modifica futura)
+   I dati degli utenti non devono mai andare persi con un aggiornamento.
+   1. L'archivio vero è su Google Drive: cartelle (cantiere, gruppo) e file
+      (foto JPG, planimetrie, rapporti), con i dati in "description" (JSON)
+      e il tipo in appProperties.fc. Nessun aggiornamento cancella o
+      riscrive file esistenti: si leggono così come sono.
+   2. Formato dei dati: si possono solo AGGIUNGERE campi nuovi. I campi
+      esistenti (nome, indirizzo, titolo, data, descrizione, taken, num,
+      pianta, x, y, ang, nota, autore, label) non si rinominano né si
+      cambiano di significato. Il codice deve funzionare anche con dati
+      creati da versioni precedenti (campi mancanti = valori di default).
+   3. Non cambiare ROOT_FOLDER_ID senza spostare prima l'archivio: l'app
+      mostrerebbe un archivio vuoto (i dati restano comunque su Drive).
+   4. Sul telefono (IndexedDB "foto-cantiere") la coda dei caricamenti
+      contiene foto non ancora salvate su Drive: non va mai svuotata da un
+      aggiornamento. Se serve una nuova struttura, aumentare la versione
+      del database e AGGIUNGERE archivi, senza eliminarne.
+   5. Le eliminazioni su Drive avvengono solo su richiesta esplicita
+      dell'utente e spostano nel cestino (recuperabile per 30 giorni).
+   ===================================================================== */
 const ROOT_ID = MODE === 'drive' ? CONFIG.ROOT_FOLDER_ID : 'root';
 const IN_ARTIFACT = !!(window.claude && typeof window.claude.use === 'function');
 const TMP = 'tmp~';
@@ -368,7 +391,7 @@ const IDB = (() => {
   function open() {
     if (!dbp) dbp = new Promise(res => {
       try {
-        const r = indexedDB.open('foto-cantiere', 1);
+        const r = indexedDB.open('foto-cantiere', 1); // vedi regola 4: mai eliminare archivi in un aggiornamento
         r.onupgradeneeded = () => { for (const n of STORES) if (!r.result.objectStoreNames.contains(n)) r.result.createObjectStore(n); };
         r.onsuccess = () => res(r.result);
         r.onerror = () => res(null);
@@ -542,7 +565,9 @@ const Drive = {
     return this.toEnt(await r.json(), kind, parentId);
   },
   async update(kind, id, data) {
-    const r = await this.f(`${API}/files/${id}?supportsAllDrives=true&fields=${encodeURIComponent(this.FIELDS)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: this.nameFor(kind, data), description: JSON.stringify(data) }) });
+    // il nome del file di una foto non cambia mai (dipende solo da data e ora di scatto)
+    const meta = kind === 'foto' ? { description: JSON.stringify(data) } : { name: this.nameFor(kind, data), description: JSON.stringify(data) };
+    const r = await this.f(`${API}/files/${id}?supportsAllDrives=true&fields=${encodeURIComponent(this.FIELDS)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(meta) });
     return this.toEnt(await r.json(), kind);
   },
   async remove(kind, id) { await this.f(`${API}/files/${id}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) }); },
@@ -788,6 +813,21 @@ async function nextNumFor(cant) {
   // foto vecchie senza numero: si riparte dopo il loro totale, così i numeri restano unici
   const senza = items.filter(i => i.foto.data.num == null).length;
   return Math.max(max, senza) + 1;
+}
+// Foto create prima della numerazione: ricevono una volta sola il numero del cantiere, in ordine di scatto,
+// dopo i numeri già usati. Si AGGIUNGE solo il campo "num": nessun altro dato viene toccato (regola 2).
+async function assignMissingNums(cant) {
+  if (MODE === 'drive' && (READONLY || !navigator.onLine)) return 0;
+  const key = 'numchk:' + Store.resolve(cant.id);
+  const last = +(await IDB.get('kv', key) || 0);
+  if (Date.now() - last < 10 * 60000) return 0;
+  const { items } = await cantiereFotos(cant, MODE === 'drive');
+  const senza = items.filter(i => i.foto.data.num == null).map(i => i.foto).sort(byTaken);
+  if (!senza.length) { await IDB.put('kv', key, Date.now()); return 0; }
+  let max = 0; for (const { foto } of items) if (foto.data.num != null) max = Math.max(max, +foto.data.num || 0);
+  for (const f of senza) await Store.update(f, { num: ++max });
+  await IDB.put('kv', key, Date.now());
+  return senza.length;
 }
 // Punti dello storico: le foto scattate a pochi centimetri di distanza sulla pianta formano lo stesso punto.
 function clusterPoints(items, piantaId, radius = 0.025) {
@@ -1473,14 +1513,15 @@ function LoginView(error) {
     h('div', { class: 'brand' }, h('div', { class: 'brand-mark' }, icon('pin')), h('div', null, h('h1', null, 'Foto Cantiere'), h('p', null, 'Archivio fotografico dei cantieri'))),
     h('p', { class: 'modal-text' }, 'Accesso riservato. Entra con l\'account Google che è stato autorizzato; le foto vengono archiviate nella cartella Google Drive condivisa.'),
     err, btn,
-    Auth.user ? h('p', { class: 'hint' }, 'Ultimo accesso: ', h('b', null, Auth.user.email)) : null));
+    Auth.user ? h('p', { class: 'hint' }, 'Ultimo accesso: ', h('b', null, Auth.user.email)) : null,
+    h('p', { class: 'hint' }, h('a', { href: 'privacy.html', style: 'color:var(--accent)' }, 'Informativa privacy'))));
   return { el };
 }
 
 /* ---------- Cantieri ---------- */
 function cantiereForm(d = {}) {
   const f = {
-    nome: h('input', { id: 'c-nome', value: d.nome || '', placeholder: 'Es. Ristrutturazione Rossi', autocomplete: 'off' }),
+    nome: h('input', { id: 'c-nome', maxlength: 120, value: d.nome || '', placeholder: 'Es. Ristrutturazione Rossi', autocomplete: 'off' }),
     indirizzo: h('input', { id: 'c-ind', value: d.indirizzo || '', placeholder: 'Via, numero civico, comune' }),
     committente: h('input', { id: 'c-com', value: d.committente || '' }),
     intestazione: h('input', { id: 'c-int', value: d.intestazione ?? CONFIG.INTESTAZIONE_DEFAULT }),
@@ -1558,7 +1599,7 @@ function CantiereView(cant, initialTab) {
     catch (e) { if (!gruppi) showLoadError(body, e); else toast(e.message, 'err'); }
   }
   async function addGruppo() {
-    const t = h('input', { id: 'g-tit', placeholder: 'Es. Sopralluogo impianti, Getto solaio…' }), d = h('input', { id: 'g-data', type: 'date', value: todayISO() }), ds = h('textarea', { id: 'g-desc', placeholder: 'Cosa documentano queste foto' });
+    const t = h('input', { id: 'g-tit', maxlength: 150, placeholder: 'Es. Sopralluogo impianti, Getto solaio…' }), d = h('input', { id: 'g-data', type: 'date', value: todayISO() }), ds = h('textarea', { id: 'g-desc', maxlength: 2000, placeholder: 'Cosa documentano queste foto' });
     const ok = await modal({ title: 'Nuovo gruppo di foto', body: h('div', { class: 'form' }, field('Titolo *', t), field('Data', d), field('Descrizione', ds)), actions: [{ label: 'Annulla', value: false }, { label: 'Crea gruppo', kind: 'primary', onClick: () => { if (!t.value.trim()) { t.focus(); toast('Indica un titolo', 'err'); return false; } return true; } }] });
     if (!ok) return;
     const g = await Store.create('gruppo', cant.id, { titolo: t.value.trim(), data: d.value || todayISO(), descrizione: ds.value.trim() });
@@ -1607,7 +1648,7 @@ function CantiereView(cant, initialTab) {
     if (a === 'del' && await confirmBox('Eliminare il cantiere?', MODE === 'drive' ? 'La cartella del cantiere, con tutte le foto, va nel cestino di Google Drive (recuperabile da lì per 30 giorni).' : 'Verranno eliminate tutte le foto del cantiere da questo dispositivo.', 'Elimina', true)) { await Store.remove(cant); Nav.back(); }
   }
   if (tab !== 'gruppi') setTimeout(() => setTab(tab));
-  return { el, route: { c: cant.id }, onShow: () => load(false), onStore: () => load(true) };
+  return { el, route: { c: cant.id }, onShow: () => { load(false); assignMissingNums(cant).catch(e => console.error(e)); }, onStore: () => load(true) };
 }
 
 /* ---------- Gruppo di foto ---------- */
@@ -1709,7 +1750,7 @@ function GruppoView(cant, grp) {
       await modal({ title: `${files.length} foto pronte`, body: h('p', { class: 'modal-text' }, 'Scegli «Salva immagini» (iPhone) o la Galleria / File (Android).'), actions: [{ label: 'Annulla', value: null }, { label: 'Salva sul telefono', kind: 'primary', icon: 'download', onClick: () => { navigator.share({ files }).catch(() => {}); } }] });
     }
     if (a === 'edit') {
-      const t = h('input', { id: 'ge-t', value: grp.data.titolo }), d = h('input', { id: 'ge-d', type: 'date', value: grp.data.data || '' }), ds = h('textarea', { id: 'ge-ds' }); ds.value = grp.data.descrizione || '';
+      const t = h('input', { id: 'ge-t', maxlength: 150, value: grp.data.titolo }), d = h('input', { id: 'ge-d', type: 'date', value: grp.data.data || '' }), ds = h('textarea', { id: 'ge-ds', maxlength: 2000 }); ds.value = grp.data.descrizione || '';
       if (await modal({ title: 'Modifica gruppo', body: h('div', { class: 'form' }, field('Titolo', t), field('Data', d), field('Descrizione', ds)), actions: [{ label: 'Annulla', value: false }, { label: 'Salva', kind: 'primary', onClick: () => !!t.value.trim() || (toast('Indica un titolo', 'err'), false) }] })) {
         await Store.update(grp, { titolo: t.value.trim(), data: d.value || grp.data.data, descrizione: ds.value.trim() });
         titleEl.textContent = grp.data.titolo; renderDesc(); toast('Modifiche salvate');
@@ -1730,7 +1771,7 @@ function ScattoView(cant, grp) {
   const dirBtn = h('button', { class: 'btn small', type: 'button', onclick: () => { dirMode = !dirMode; paint(); } });
   const clrBtn = h('button', { class: 'btn small', type: 'button', onclick: () => { if (point) { point.ang = null; paint(); } } }, 'Togli direzione');
   const newBtn = h('button', { class: 'btn small', type: 'button', onclick: () => { point = null; dirMode = false; paint(); } }, 'Nuovo punto');
-  const nota = h('input', { id: 's-nota', placeholder: 'Es. Parete nord cucina, tracce impianto', autocomplete: 'off' });
+  const nota = h('input', { id: 's-nota', maxlength: 1000, placeholder: 'Es. Parete nord cucina, tracce impianto', autocomplete: 'off' });
   const stripLbl = h('div', { class: 'section-label' });
   const strip = h('div', { class: 'strip' });
   const camBtn = h('button', { class: 'btn primary big grow', type: 'button', onclick: () => take(true) }, icon('camera'), 'Scatta');
@@ -1814,7 +1855,7 @@ function FotoView(cant, grp, fotos, idx) {
   const prev = h('button', { class: 'btn small', type: 'button', onclick: () => go(-1) }, icon('left'), 'Prec.');
   const next = h('button', { class: 'btn small', type: 'button', onclick: () => go(1) }, 'Succ.', icon('right'));
   const info = h('div', { class: 'card info-grid' });
-  const nota = h('textarea', { id: 'f-nota', placeholder: 'Descrizione della foto', readonly: READONLY || null });
+  const nota = h('textarea', { id: 'f-nota', maxlength: 1000, placeholder: 'Descrizione della foto', readonly: READONLY || null });
   const saveN = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: async () => { await Store.update(f, { nota: nota.value.trim() }); saveN.disabled = true; toast('Nota salvata'); } }, icon('check'), 'Salva nota');
   nota.addEventListener('input', () => { saveN.disabled = nota.value.trim() === (f.data.nota || ''); });
   const planBox = h('div', { class: 'form' });
@@ -1891,7 +1932,7 @@ function SettingsView() {
           h('label', { class: 'check' }, offl, 'Simula assenza di rete'),
           h('p', { class: 'modal-text' }, 'Con la rete simulata spenta vedi come l\'app mette in coda le foto e le carica appena torna la connessione.'),
           h('button', { class: 'btn danger', type: 'button', onclick: async () => { if (await confirmBox('Ripristinare i dati di esempio?', 'Tutti i dati di prova su questo dispositivo verranno cancellati.', 'Ripristina', true)) { await resetDemo(); Nav.reset(() => HomeView()); } } }, 'Ripristina dati di esempio'))] : null,
-      h('p', { class: 'hint', style: 'justify-content:center' }, 'Foto Cantiere · versione 1.0')));
+      h('p', { class: 'hint', style: 'justify-content:center' }, `Foto Cantiere · versione ${APP_VERSION}`, MODE === 'drive' ? [' · ', h('a', { href: 'privacy.html', style: 'color:var(--accent)' }, 'Privacy')] : null)));
   async function renderQueue() {
     const ops = await Store.ops(); const i = syncInfo();
     if (!ops.length) return queue.replaceChildren(h('div', { class: 'empty' }, h('strong', null, 'Nessun elemento in attesa'), MODE === 'drive' ? 'Tutto è archiviato su Google Drive.' : 'In modalità prova tutto resta sul dispositivo.'));
@@ -2174,6 +2215,7 @@ function drawDemoPhoto(n, title, hue) {
   return canvasToBlob(c, 'image/jpeg', 0.85);
 }
 async function seedDemo() {
+  if (MODE !== 'demo') return; // i dati di esempio esistono solo nella versione di prova
   if (await IDB.get('kv', 'demoSeeded2')) return;
   if (await IDB.get('kv', 'demoSeeded')) return; // dati di prova già presenti: non li tocco (si rigenerano da Impostazioni)
   const c = await Local.create('cantiere', ROOT_ID, { nome: 'Esempio – Ristrutturazione appartamento', indirizzo: 'Indirizzo di prova', committente: 'Committente di prova', intestazione: CONFIG.INTESTAZIONE_DEFAULT, contatti: CONFIG.CONTATTI_DEFAULT });
@@ -2206,6 +2248,7 @@ async function seedDemo() {
   await IDB.put('kv', 'demoSeeded2', true);
 }
 async function resetDemo() {
+  if (MODE !== 'demo') return; // in modalità operativa non si cancella mai nulla dal telefono
   for (const s of ['ents', 'queue', 'kv', 'blobs']) await IDB.clear(s);
   Store.idmap = {}; Store.urls.clear(); await Store.refreshStatus(); await seedDemo();
 }
