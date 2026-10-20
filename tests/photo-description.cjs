@@ -1,0 +1,55 @@
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const html = fs.readFileSync(__dirname + '/../index.html','utf8');
+const source = html.slice(html.indexOf('const PhotoDescription = {'),html.indexOf('/* ---------- archivio di prova'));
+const context = {TextEncoder,Blob,API:'https://test.invalid/drive',UPL:'https://test.invalid/upload',uid:()=> 'test-id',pad:n=>String(n).padStart(2,'0'),Access:{requireCantiereCreator(){}}};
+vm.createContext(context);vm.runInContext(source+'\nthis.codec=PhotoDescription;this.drive=Drive;',context);
+const {codec,drive}=context;
+const plain = x => JSON.parse(JSON.stringify(x));
+let tests=0;
+async function main(){
+  const original={photoUid:'test-photo-id',num:42,taken:'2026-10-20T09:00:00Z',pianta:'plan-id',x:0.35,y:0.68,ang:180,nota:'Parete nord: umidità rilevata.\nVerificare l’impermeabilizzazione. 📷',autore:'Operatore di prova',unknownHistoricalField:{a:1}};
+  const encoded=codec.encode(original);
+  assert.equal(encoded.description,original.nota);assert.deepEqual(plain(codec.decode(encoded)),original);tests++;
+  for(const [key,value]of Object.entries(encoded.appProperties))assert.ok(Buffer.byteLength(key+value,'utf8')<=124);
+  assert.ok(Object.keys(encoded.appProperties).length<=30);tests++;
+  const unicode={...original,autore:'🧱è漢'.repeat(70)};
+  assert.deepEqual(plain(codec.decode(codec.encode(unicode))),unicode);tests++;
+  assert.deepEqual(plain(codec.decode({description:JSON.stringify(original)})),original);tests++;
+  assert.deepEqual(plain(codec.decode({description:'Nota da file storico senza JSON'})),{nota:'Nota da file storico senza JSON'});tests++;
+  assert.deepEqual(plain(codec.decode({description:''})),{});tests++;
+  const cleared=codec.encode({...original,nota:''},true);
+  assert.equal(codec.decode(cleared).nota,'');assert.equal(codec.decode(cleared).num,42);tests++;
+  const jsonNote={...original,nota:'{"nota":"testo letterale","num":99}'};
+  assert.equal(codec.decode(codec.encode(jsonNote)).nota,jsonNote.nota);tests++;
+  const shorter=codec.encode({...original,autore:'x'},true);
+  assert.equal(Object.keys(shorter.appProperties).length,28);
+  assert.equal(shorter.appProperties.fc_m25,null);tests++;
+  assert.throws(()=>codec.encode({...original,autore:'🧱'.repeat(1000)}),/troppo lunghi/);tests++;
+  assert.throws(()=>codec.decode({description:'nota',appProperties:{fc_meta:'1:2',fc_m00:'{}'}}),/incompleti/);tests++;
+  assert.throws(()=>codec.decode({appProperties:{fc_meta:'2:1',fc_m00:'{}'}}),/non supportato/);tests++;
+  assert.throws(()=>codec.decode({appProperties:{fc_meta:'1:1',fc_m00:'['}}),/non leggibili/);tests++;
+  assert.throws(()=>codec.decode({appProperties:{fc_meta:'1:1',fc_m00:'[]'}}),/non validi/);tests++;
+  assert.deepEqual(plain(drive.toEnt({id:'f',...encoded},'foto','group').data),original);tests++;
+  assert.equal(drive.toEnt({id:'f',description:JSON.stringify(original)},'foto').legacyPhotoDescription,true);tests++;
+  const folder={nome:'Cantiere invariato',indirizzo:'Indirizzo TEST'};
+  assert.deepEqual(plain(drive.toEnt({id:'c',description:JSON.stringify(folder)},'cantiere').data),folder);tests++;
+  let writes=[];
+  drive.f=async(url,opts)=>{
+    let meta;
+    if(typeof opts.body==='string')meta=JSON.parse(opts.body);
+    else {const body=await opts.body.text();const start=body.indexOf('\r\n\r\n')+4;meta=JSON.parse(body.slice(start,body.indexOf('\r\n--',start)));}
+    writes.push({url,meta});return {json:async()=>({id:'photo-id',...meta})};
+  };
+  const saved=await drive.create('foto','group',original,new Blob(['test-image'],{type:'image/jpeg'}));
+  assert.equal(writes[0].meta.description,original.nota);assert.deepEqual(plain(saved.data),original);tests++;
+  const updated=await drive.update('foto','photo-id',{...original,nota:'Nota aggiornata su Drive'});
+  assert.equal(writes[1].meta.name,undefined);assert.equal(writes[1].meta.description,'Nota aggiornata su Drive');
+  assert.equal(updated.data.photoUid,original.photoUid);assert.equal(updated.data.pianta,original.pianta);tests++;
+  const before=writes.length;
+  await assert.rejects(drive.update('foto','photo-id',{...original,autore:'x'.repeat(6000)}),/troppo lunghi/);
+  assert.equal(writes.length,before);tests++;
+  console.log(`PASS: ${tests} verifiche descrizioni e metadati foto.`);
+}
+main().catch(e=>{console.error(e);process.exitCode=1;});

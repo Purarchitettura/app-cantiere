@@ -4,6 +4,16 @@ App web installabile su iPhone e Android: si apre dal browser e si aggiunge alla
 
 ## Cosa fa
 
+### Descrizioni delle foto su Drive (versione 2.3)
+
+La nota inserita nell'app è salvata come testo leggibile nel campo **Descrizione** del file fotografico su Google Drive. Anche una nota vuota viene sincronizzata correttamente. Nome e contenuto dell'immagine non cambiano.
+
+Numerazione, data, autore, identificativo della foto, posizione e direzione sulla planimetria restano nelle proprietà private `appProperties` del file, in un formato versionato. Si conservano anche eventuali campi storici non riconosciuti. La nuova app legge sia questo formato sia il JSON delle versioni precedenti; dati tecnici incompleti o eccessivamente lunghi producono un errore, senza troncamenti o sovrascritture silenziose.
+
+Per le foto già presenti, i due utenti creatori trovano in **Impostazioni → Aggiorna descrizioni foto su Drive** il comando che accoda l'aggiornamento dei metadati. Non modifica immagini, nomi, note, gruppi o condivisioni; ignora le foto già aggiornate e quelle con operazioni ancora in attesa. Controllare la coda per confermare il completamento.
+
+**Dopo questo aggiornamento ricaricare l'app su tutti i dispositivi** e chiudere eventuali schede delle versioni precedenti, che non conoscono il nuovo formato. Le vecchie cache dei dati sono aggiornate alla successiva lettura da Drive. Come già avveniva, modifiche contemporanee allo stesso elemento non sono una modifica collaborativa in tempo reale.
+
 - **Cantieri**, ciascuno con nome, indirizzo, committente e intestazione del rapporto (il tuo nome o lo studio, a seconda dell'incarico).
 - **Planimetrie** del cantiere: si caricano in formato JPG, PNG o PDF. Del PDF si sceglie la pagina.
 - **Gruppi di foto** con titolo, data e descrizione.

@@ -297,15 +297,18 @@ const CONFIG = {
   CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
 };
 const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
-const APP_VERSION = '2.2 accesso per cantiere · 19/10/2026';
+const APP_VERSION = '2.3 descrizioni foto su Drive · 20/10/2026';
 
 /* =====================================================================
    REGOLE PER GLI AGGIORNAMENTI (da rispettare in ogni modifica futura)
    I dati degli utenti non devono mai andare persi con un aggiornamento.
    1. L'archivio vero è su Google Drive: cartelle (cantiere, gruppo) e file
-      (foto JPG, planimetrie, rapporti), con i dati in "description" (JSON)
-      e il tipo in appProperties.fc. Nessun aggiornamento cancella o
-      riscrive file esistenti: si leggono così come sono.
+      (foto JPG, planimetrie, rapporti). Cartelle e file storici hanno i dati
+      in "description" (JSON); dalla v2.3 le foto hanno la nota leggibile in
+      "description" e gli altri campi nelle proprietà private fc_meta/fc_mNN.
+      Il tipo resta appProperties.fc. Il comando richiesto dall'utente per
+      aggiornare le descrizioni migra solo i metadati, conservando tutti i
+      campi; immagini, nomi e condivisioni non vengono riscritti o cancellati.
    2. Formato dei dati: si possono solo AGGIUNGERE campi nuovi. I campi
       esistenti (nome, indirizzo, titolo, data, descrizione, taken, num,
       pianta, x, y, ang, nota, autore, label) non si rinominano né si
@@ -611,8 +614,53 @@ const Auth = {
 
 /* ---------- archivio Google Drive ---------- */
 const API = 'https://www.googleapis.com/drive/v3', UPL = 'https://www.googleapis.com/upload/drive/v3';
+// La nota resta testo leggibile su Drive; gli altri campi sono proprietà private
+// dell'app. Chunk UTF-8 sotto i 124 byte per proprietà, massimo 28 proprietà.
+const PhotoDescription = {
+  slots: 26,
+  key(i) { return 'fc_m' + String(i).padStart(2, '0'); },
+  encode(data, update = false) {
+    const { nota, ...metadata } = data;
+    const chunks = []; let chunk = '', bytes = 0;
+    const encoder = new TextEncoder();
+    for (const character of JSON.stringify(metadata)) {
+      const size = encoder.encode(character).length;
+      if (bytes + size > 100) { chunks.push(chunk); chunk = ''; bytes = 0; }
+      chunk += character; bytes += size;
+    }
+    if (chunk) chunks.push(chunk);
+    if (chunks.length > this.slots) throw new Error('Dati tecnici della foto troppo lunghi: la foto non è stata modificata.');
+    const appProperties = { fc: 'foto', fc_meta: '1:' + chunks.length };
+    for (let i = 0; i < this.slots; i++) {
+      if (i < chunks.length) appProperties[this.key(i)] = chunks[i];
+      else if (update) appProperties[this.key(i)] = null;
+    }
+    return { description: String(nota ?? ''), appProperties };
+  },
+  decode(file) {
+    const marker = file.appProperties?.fc_meta;
+    if (marker) {
+      const match = /^1:(\d+)$/.exec(marker);
+      const count = match ? +match[1] : 0;
+      if (!count || count > this.slots) throw new Error('Formato dati della foto non supportato. Aggiorna l’app.');
+      let json = '';
+      for (let i = 0; i < count; i++) {
+        const chunk = file.appProperties[this.key(i)];
+        if (typeof chunk !== 'string') throw new Error('Dati tecnici della foto incompleti: nessun dato è stato sovrascritto.');
+        json += chunk;
+      }
+      let data;
+      try { data = JSON.parse(json); } catch { throw new Error('Dati tecnici della foto non leggibili.'); }
+      if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Dati tecnici della foto non validi.');
+      return { ...data, nota: file.description || '' };
+    }
+    // Foto create dalle versioni precedenti: lettura senza migrazioni distruttive.
+    try { const data = JSON.parse(file.description || '{}'); if (data && typeof data === 'object' && !Array.isArray(data)) return data; } catch {}
+    return { nota: file.description || '' };
+  },
+};
 const Drive = {
-  FIELDS: 'id,name,description,createdTime,modifiedTime,parents,capabilities(canAddChildren)',
+  FIELDS: 'id,name,description,createdTime,modifiedTime,parents,capabilities(canAddChildren),appProperties',
   async f(url, opts = {}) {
     const tok = await Auth.token(); let r;
     try { r = await fetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + tok } }); }
@@ -625,7 +673,7 @@ const Drive = {
     }
     return r;
   },
-  toEnt(f, kind, parentId) { let data = {}; try { data = JSON.parse(f.description || '{}'); } catch {} return { id: f.id, kind, parentId: parentId || (f.parents && f.parents[0]), data, created: f.createdTime, modified: f.modifiedTime, canAddChildren: f.capabilities?.canAddChildren }; },
+  toEnt(f, kind, parentId) { let data = {}; if (kind === 'foto') data = PhotoDescription.decode(f); else { try { data = JSON.parse(f.description || '{}'); } catch {} } return { id: f.id, kind, parentId: parentId || (f.parents && f.parents[0]), data, created: f.createdTime, modified: f.modifiedTime, canAddChildren: f.capabilities?.canAddChildren, legacyPhotoDescription: kind === 'foto' && !f.appProperties?.fc_meta }; },
   nameFor(kind, d) {
     switch (kind) {
       case 'cantiere': return d.nome || 'Cantiere';
@@ -655,7 +703,7 @@ const Drive = {
   },
   async create(kind, parentId, data, blob) {
     if (kind === 'cantiere') Access.requireCantiereCreator();
-    const meta = { name: this.nameFor(kind, data), parents: [parentId], description: JSON.stringify(data), appProperties: { fc: kind } };
+    const meta = { name: this.nameFor(kind, data), parents: [parentId], ...(kind === 'foto' ? PhotoDescription.encode(data) : { description: JSON.stringify(data), appProperties: { fc: kind } }) };
     const fields = '&fields=' + encodeURIComponent(this.FIELDS);
     let r;
     if (!blob) {
@@ -670,7 +718,7 @@ const Drive = {
   },
   async update(kind, id, data) {
     // il nome del file di una foto non cambia mai (dipende solo da data e ora di scatto)
-    const meta = kind === 'foto' ? { description: JSON.stringify(data) } : { name: this.nameFor(kind, data), description: JSON.stringify(data) };
+    const meta = kind === 'foto' ? PhotoDescription.encode(data, true) : { name: this.nameFor(kind, data), description: JSON.stringify(data) };
     const r = await this.f(`${API}/files/${id}?supportsAllDrives=true&fields=${encodeURIComponent(this.FIELDS)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(meta) });
     return this.toEnt(await r.json(), kind);
   },
@@ -682,7 +730,7 @@ const Drive = {
     catch (e) { if (e.status === 403 || e.status === 404) return null; throw e; }
   },
   async siteInfo(id) {
-    try { return await (await this.f(`${API}/files/${encodeURIComponent(id)}?supportsAllDrives=true&fields=${encodeURIComponent(this.FIELDS + ',mimeType,trashed,appProperties')}`)).json(); }
+    try { return await (await this.f(`${API}/files/${encodeURIComponent(id)}?supportsAllDrives=true&fields=${encodeURIComponent(this.FIELDS + ',mimeType,trashed')}`)).json(); }
     catch (e) { if (e.status === 403 || e.status === 404) return null; throw e; }
   },
   async rootInfo() { return this.folderInfo(CONFIG.ROOT_FOLDER_ID); },
@@ -2146,6 +2194,35 @@ function FotoView(cant, grp, fotos, idx) {
 }
 
 /* ---------- Impostazioni e coda ---------- */
+async function migratePhotoDescriptions() {
+  if (MODE !== 'drive' || !Access.isCreator()) return;
+  if (!navigator.onLine) return toast('Serve una connessione per aggiornare le descrizioni su Drive.', 'err');
+  const progress = busy('Verifica descrizioni foto…'); let updated = 0, failed = 0;
+  try {
+    const cantieri = await Store.list('cantiere', ROOT_ID);
+    for (const cant of cantieri) {
+      if (!Access.canWriteCantiere(cant)) continue;
+      const gruppi = await Store.list('gruppo', cant.id);
+      for (const grp of gruppi) {
+        const fotos = await Store.list('foto', grp.id);
+        for (const foto of fotos) {
+          if (!foto.legacyPhotoDescription || foto.pending) continue;
+          try {
+            // Rilegge il file prima di accodare: preserva anche campi storici sconosciuti.
+            const raw = await Drive.siteInfo(Store.resolve(foto.id));
+            if (!raw || raw.trashed || raw.appProperties?.fc_meta) continue;
+            const fresh = Drive.toEnt(raw, 'foto', grp.id);
+            PhotoDescription.encode(fresh.data, true); // nessun accodamento se eccede i limiti Drive
+            await Store.update(fresh, {}); updated++;
+            progress.set(`${updated} descrizioni in aggiornamento`);
+          } catch (e) { failed++; console.error(e); }
+        }
+      }
+    }
+    toast(`${updated} descrizioni accodate${failed ? ', ' + failed + ' non aggiornate' : ''}. Controlla lo stato dei caricamenti.`, failed ? 'err' : undefined);
+  } catch (e) { toast('Aggiornamento interrotto: ' + e.message, 'err'); }
+  finally { progress.close(); }
+}
 function SettingsView() {
   const st = Settings.get();
   const firma = h('input', { id: 'st-firma', value: st.firma, placeholder: MODE === 'drive' ? (Auth.user?.name || '') : CONFIG.INTESTAZIONE_DEFAULT });
@@ -2160,6 +2237,9 @@ function SettingsView() {
       h('div', { class: 'section-label' }, 'Caricamenti'), queue,
       h('div', { class: 'section-label' }, 'Foto e rapporti'),
       h('div', { class: 'card form', style: 'padding:14px' }, field('Firma / autore delle foto', firma, 'Compare sulle foto e nel campo «Redatto da» del rapporto'), field('Qualità delle foto archiviate', lato, 'Più alta = più dettaglio ma caricamenti più lenti')),
+      MODE === 'drive' && Access.isCreator() ? h('div', { class: 'card', style: 'padding:14px;display:grid;gap:10px' },
+        h('p', { class: 'modal-text' }, 'Le note delle foto sono visibili nella Descrizione del file su Google Drive. Puoi aggiornare anche le foto precedenti: immagini e nomi non cambiano.'),
+        h('button', { class: 'btn', type: 'button', onclick: migratePhotoDescriptions }, 'Aggiorna descrizioni foto su Drive')) : null,
       MODE === 'drive' ? [h('div', { class: 'section-label' }, 'Account'), acct,
         h('div', { class: 'btn-row' }, !Auth.valid() ? h('button', { class: 'btn primary', type: 'button', onclick: () => Auth.start() }, 'Accedi di nuovo') : null,
           h('button', { class: 'btn danger', type: 'button', onclick: async () => { if (Store.status.pending && !await confirmBox('Ci sono elementi non caricati', 'Se esci ora restano sul telefono e verranno caricati al prossimo accesso con lo stesso account.', 'Esci comunque', true)) return; Auth.signOut(); Nav.reset(() => LoginView()); } }, 'Esci'))] : null,
