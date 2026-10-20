@@ -4,6 +4,14 @@ App web installabile su iPhone e Android: si apre dal browser e si aggiunge alla
 
 ## Cosa fa
 
+### Scatto libero e verifica delle note (versione 2.4)
+
+Il punto sulla planimetria è facoltativo per scatto singolo, importazione dalla galleria e fotocamera continua. L'app parte in modalità senza punto, salvo una planimetria scelta in precedenza. Anche con una planimetria aperta si può scattare subito senza toccarla: in questo caso la foto non riceve né planimetria né coordinate. Per associare un punto basta toccare la pianta; «Scatta senza punto» rimuove il punto corrente.
+
+Nel dettaglio della foto, «Salva nota e sincronizza» distingue il salvataggio locale dalla verifica sul file Drive. Finché la coda non è vuota per quella foto non viene dichiarata la sincronizzazione. «Verifica nota su Drive» rilegge il file e controlla la corrispondenza della descrizione; eventuali differenze, vecchi formati, assenza di rete o errori sono indicati esplicitamente. «Apri foto su Drive» porta al file corretto.
+
+**Dove leggere la nota su Drive:** aprire la foto → menu **File → Dettagli → Descrizione**. La nota è una descrizione del file, non un testo stampato sopra l'immagine nell'anteprima.
+
 ### Descrizioni delle foto su Drive (versione 2.3)
 
 La nota inserita nell'app è salvata come testo leggibile nel campo **Descrizione** del file fotografico su Google Drive. Anche una nota vuota viene sincronizzata correttamente. Nome e contenuto dell'immagine non cambiano.
@@ -17,7 +25,7 @@ Per le foto già presenti, i due utenti creatori trovano in **Impostazioni → A
 - **Cantieri**, ciascuno con nome, indirizzo, committente e intestazione del rapporto (il tuo nome o lo studio, a seconda dell'incarico).
 - **Planimetrie** del cantiere: si caricano in formato JPG, PNG o PDF. Del PDF si sceglie la pagina.
 - **Gruppi di foto** con titolo, data e descrizione.
-- **Scatto con punto sulla planimetria**: tocchi la pianta dove ti trovi, indichi se vuoi la direzione in cui punti il telefono, poi scatti quante foto vuoi da quel punto. Ogni foto ha una nota modificabile.
+- **Scatto con o senza punto sulla planimetria**: puoi scattare subito senza posizione; facoltativamente tocchi la pianta dove ti trovi, indichi la direzione e scatti quante foto vuoi da quel punto. Ogni foto ha una nota modificabile.
 - **Senza rete**: le foto restano in coda sul telefono e si caricano da sole quando torna la connessione.
 - **Rapporto fotografico PDF**: intestazione, dati del cantiere, descrizione e planimetria con i numeri delle foto e le frecce di direzione. Seguono le foto numerate con data, ora, autore e nota, impaginate a 2, 4 o 6 per pagina. In fondo c'è lo spazio per la firma. Il rapporto si condivide, si stampa o si salva nella cartella del gruppo su Drive.
 - **Archivio su Google Drive**: ogni cantiere è una cartella e ogni gruppo una sottocartella. Le foto sono file JPG normali, consultabili anche da Drive.
@@ -138,7 +146,7 @@ Ricarica il file su GitHub. Finché `CLIENT_ID` e `ROOT_FOLDER_ID` sono vuoti, l
 
 1. Apri il cantiere e, la prima volta, carica la planimetria dalla scheda *Planimetrie*.
 2. Crea un gruppo, ad esempio "Sopralluogo impianti", con la descrizione.
-3. Tocca **Scatta foto**. Tocca la pianta nel punto in cui ti trovi e, se vuoi, *Indica direzione*. Poi scatta.
+3. Tocca **Scatta foto** e scatta subito senza punto. Se vuoi registrare la posizione, scegli la planimetria, toccala nel punto in cui ti trovi e, facoltativamente, scegli *Indica direzione*.
 4. Per cambiare posizione tocca di nuovo la pianta o *Nuovo punto*.
 5. Dal gruppo: **Rapporto** → scegli l'impaginazione → *Crea PDF* → condividi, stampa o salva su Drive.
 

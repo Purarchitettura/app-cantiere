@@ -297,7 +297,7 @@ const CONFIG = {
   CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
 };
 const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
-const APP_VERSION = '2.3 descrizioni foto su Drive · 20/10/2026';
+const APP_VERSION = '2.4 scatto libero e verifica note · 20/10/2026';
 
 /* =====================================================================
    REGOLE PER GLI AGGIORNAMENTI (da rispettare in ogni modifica futura)
@@ -1903,7 +1903,7 @@ function GruppoView(cant, grp) {
   function render() {
     renderDesc(); pv?.destroy(); pv = null;
     if (!fotos) return;
-    if (!fotos.length) return body.replaceChildren(h('div', { class: 'card empty' }, h('strong', null, 'Ancora nessuna foto'), READONLY ? '' : 'Tocca «Scatta foto», indica sulla planimetria dove ti trovi e scatta.'));
+    if (!fotos.length) return body.replaceChildren(h('div', { class: 'card empty' }, h('strong', null, 'Ancora nessuna foto'), READONLY ? '' : 'Tocca «Scatta foto». Puoi scattare subito: il punto sulla planimetria è facoltativo.'));
     if (mode === 'grid') return body.replaceChildren(h('div', { class: 'grid' }, fotos.map(tile)));
     const used = piante.filter(p => fotos.some(f => Store.same(f.data.pianta, p.id)));
     if (!used.length) return body.replaceChildren(h('div', { class: 'card empty' }, h('strong', null, 'Nessuna foto collocata'), 'Le foto di questo gruppo non hanno un punto sulla planimetria.'));
@@ -1983,7 +1983,11 @@ function GruppoView(cant, grp) {
   return { el, route: { c: cant.id, g: grp.id }, onShow: () => load(false), onStore: () => load(true), destroy: () => pv?.destroy() };
 }
 
-/* ---------- Scatto: punto sulla planimetria + foto ---------- */
+/* ---------- Scatto: punto facoltativo sulla planimetria + foto ---------- */
+function photoLocation(plan, point) {
+  if (!plan || !point) return { pianta: null, x: null, y: null, ang: null };
+  return { pianta: plan.id, x: point.x, y: point.y, ang: point.ang ?? null };
+}
 function ScattoView(cant, grp) {
   if (!Access.canReadCantiere(cant)) return NoCantiereAccessView();
   if (!Access.canWriteCantiere(cant)) { toast('Non hai il permesso di aggiungere foto a questo cantiere.', 'err'); return GruppoView(cant, grp); }
@@ -1994,7 +1998,7 @@ function ScattoView(cant, grp) {
   const hint = h('p', { class: 'hint' });
   const dirBtn = h('button', { class: 'btn small', type: 'button', onclick: () => { dirMode = !dirMode; paint(); } });
   const clrBtn = h('button', { class: 'btn small', type: 'button', onclick: () => { if (point) { point.ang = null; paint(); } } }, 'Togli direzione');
-  const newBtn = h('button', { class: 'btn small', type: 'button', onclick: () => { point = null; dirMode = false; paint(); } }, 'Nuovo punto');
+  const newBtn = h('button', { class: 'btn small', type: 'button', onclick: () => { point = null; dirMode = false; paint(); } }, 'Scatta senza punto');
   const nota = h('input', { id: 's-nota', maxlength: 1000, placeholder: 'Es. Parete nord cucina, tracce impianto', autocomplete: 'off' });
   const stripLbl = h('div', { class: 'section-label' });
   const strip = h('div', { class: 'strip' });
@@ -2002,7 +2006,7 @@ function ScattoView(cant, grp) {
   const galBtn = h('button', { class: 'btn big', type: 'button', onclick: () => take(false) }, icon('image'), 'Galleria');
   const liveBtn = h('button', { class: 'btn small', type: 'button', onclick: openLiveCamera }, icon('camera'), 'Fotocamera continua');
   const el = h('div', null,
-    AppBar({ title: 'Punto di ripresa', sub: grp.data.titolo }),
+    AppBar({ title: 'Scatta foto', sub: grp.data.titolo }),
     h('main', { class: 'main gut' }, chips, planBox, hint, h('div', { class: 'btn-row' }, dirBtn, clrBtn, newBtn),
       field('Nota per le prossime foto (facoltativa)', nota, 'Resta valida finché non la cambi; ogni foto si può correggere dopo.'),
       h('div', { class: 'btn-row' }, liveBtn), stripLbl, strip),
@@ -2014,22 +2018,22 @@ function ScattoView(cant, grp) {
     dirBtn.className = 'btn small' + (dirMode ? ' primary' : '');
     clrBtn.hidden = clrBtn.hidden || point?.ang == null;
     if (!hasPlan) hint.replaceChildren(icon('pin'), h('span', null, piante && !piante.length ? 'Questo cantiere non ha planimetrie: le foto verranno salvate senza punto. Puoi aggiungerne una dalla scheda del cantiere.' : 'Foto senza punto sulla planimetria.'));
-    else if (!point) hint.replaceChildren(icon('pin'), h('span', null, h('b', null, 'Tocca la planimetria'), ' nel punto in cui ti trovi. Con due dita o con + puoi ingrandire.'));
+    else if (!point) hint.replaceChildren(icon('camera'), h('span', null, h('b', null, 'Puoi scattare subito senza punto.'), ' Se vuoi associare una posizione, tocca la planimetria.'));
     else if (dirMode) hint.replaceChildren(icon('compass'), h('span', null, h('b', null, 'Tocca verso dove punti il telefono.'), ' Poi premi «Fatto».'));
     else hint.replaceChildren(icon('check'), h('span', null, h('b', null, 'Punto fissato.'), ' Scatta quante foto vuoi da qui. Per spostarlo tocca di nuovo la pianta.'));
-    camBtn.classList.toggle('waiting', !!sel && !point); galBtn.classList.toggle('waiting', !!sel && !point);
+    camBtn.classList.remove('waiting'); galBtn.classList.remove('waiting');
     pv?.setPoints(point ? [{ x: point.x, y: point.y, label: '', active: true, dirs: point.ang != null ? [{ ang: point.ang }] : [] }] : []);
-    stripLbl.textContent = shots.length ? `Serie rapida: ${shots.length} foto · punto e direzione mantenuti · note modificabili dopo` : '';
+    stripLbl.textContent = shots.length ? `Serie rapida: ${shots.length} foto · note modificabili dopo` : '';
     stripLbl.hidden = !shots.length;
   }
   function renderChips() {
-    const all = [...(piante || []).map(p => ({ id: p.id, label: p.data.label, p })), { id: null, label: 'Senza planimetria' }];
+    const all = [{ id: null, label: 'Senza punto / planimetria' }, ...(piante || []).map(p => ({ id: p.id, label: p.data.label, p }))];
     chips.replaceChildren(...all.map(o => h('button', { class: 'chip', type: 'button', 'aria-pressed': (sel ? sel.id === o.id : o.id === null), onclick: () => choose(o.p || null) }, o.label)));
   }
   function choose(p) {
     sel = p; point = null; dirMode = false; pv?.destroy(); pv = null;
     if (p) { Settings.lsSet(lastKey, Store.resolve(p.id)); pv = PlanView({ pianta: p, interactive: true, height: '48vh', onTap }); planBox.replaceChildren(pv.el); }
-    else planBox.replaceChildren();
+    else { Settings.lsSet(lastKey, 'none'); planBox.replaceChildren(); }
     renderChips(); paint();
   }
   function onTap(x, y, W, H) {
@@ -2038,12 +2042,12 @@ function ScattoView(cant, grp) {
     paint();
   }
   async function take(camera) {
-    if (sel && !point) { toast('Prima tocca la planimetria nel punto in cui ti trovi', 'err'); planBox.scrollIntoView({ behavior: 'smooth', block: 'center' }); hint.classList.remove('flash'); void hint.offsetWidth; hint.classList.add('flash'); return; }
     const files = await pickFiles({ accept: 'image/*', capture: camera ? 'environment' : null, multiple: !camera });
     if (!files.length) return;
     await saveFiles(files, camera);
   }
   async function saveFiles(files, camera) {
+    const location = photoLocation(sel, point);
     const st = Settings.get(); const b = files.length > 1 ? busy('Salvataggio foto…') : null;
     try {
       if (!numP) numP = nextNumFor(cant);
@@ -2053,7 +2057,7 @@ function ScattoView(cant, grp) {
         const r = await resizeToJpeg(files[i], st.latoMax, st.qualita);
         const taken = new Date(camera ? Date.now() : (files[i].lastModified || Date.now())).toISOString();
         const stableId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : uid();
-        const data = { photoUid: stableId, num: num++, taken, pianta: sel ? sel.id : null, x: sel && point ? point.x : null, y: sel && point ? point.y : null, ang: sel && point ? point.ang : null, nota: nota.value.trim(), autore: st.firma || (MODE === 'drive' ? Auth.user?.name || Auth.user?.email || '' : CONFIG.INTESTAZIONE_DEFAULT) };
+        const data = { photoUid: stableId, num: num++, taken, ...location, nota: nota.value.trim(), autore: st.firma || (MODE === 'drive' ? Auth.user?.name || Auth.user?.email || '' : CONFIG.INTESTAZIONE_DEFAULT) };
         const ent = await Store.create('foto', grp.id, data, r.blob);
         await Store.putThumb(ent, r.blob); shots.push(ent);
         const im = h('img', { alt: '' }); Store.thumbURL(ent).then(u => im.src = u);
@@ -2068,7 +2072,6 @@ function ScattoView(cant, grp) {
     } catch (e) { b?.close(); toast('Foto non salvata: ' + e.message, 'err'); }
   }
   async function openLiveCamera() {
-    if (sel && !point) { toast('Seleziona prima il punto sulla planimetria', 'err'); return; }
     if (!navigator.mediaDevices?.getUserMedia) { await take(true); return; }
     let stream;
     try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); }
@@ -2076,7 +2079,7 @@ function ScattoView(cant, grp) {
     const video = h('video', { autoplay: true, playsinline: true, muted: true, style: 'width:100%;max-height:65vh;background:#111;border-radius:12px' });
     video.srcObject = stream;
     const overlay = h('div', { class: 'fc-camera-overlay' });
-    const count = h('span', null, 'Punto e direzione mantenuti');
+    const count = h('span', null, point ? 'Punto e direzione mantenuti' : 'Scatto senza punto sulla planimetria');
     const stop = () => { stream.getTracks().forEach(t => t.stop()); overlay.remove(); liveCameraStop = null; };
     liveCameraStop?.();
     liveCameraStop = stop;
@@ -2125,13 +2128,34 @@ function ScattoView(cant, grp) {
     if (!piante) { try { piante = await Store.list('pianta', cant.id); } catch { piante = []; } }
     piante.sort((a, b) => String(a.created).localeCompare(String(b.created)));
     const last = Settings.lsGet(lastKey);
-    choose(piante.find(p => Store.resolve(p.id) === last) || piante[0] || null);
+    choose(last && last !== 'none' ? piante.find(p => Store.resolve(p.id) === last) || null : null);
   }
   let loaded = false;
   return { el, busyAuth: true, onShow: () => { if (!loaded) { loaded = true; load(); } }, destroy: () => { liveCameraStop?.(); unsubscribeSync?.(); pv?.destroy(); } };
 }
 
 /* ---------- Foto singola ---------- */
+const PhotoNoteSync = {
+  async check(foto) {
+    if (MODE !== 'drive') return { state: 'local', message: 'Nota salvata nell’app di prova.' };
+    const ops = await Store.ops();
+    const pending = ops.filter(op => Store.same(op.id || op.tempId, foto.id));
+    const failed = pending.find(op => op.error);
+    if (failed) return { state: 'error', message: 'Nota non sincronizzata su Drive: ' + failed.error };
+    if (pending.length || Store.isTemp(Store.resolve(foto.id))) return { state: 'pending', message: 'Nota salvata nell’app, in attesa di sincronizzazione su Drive.' };
+    try {
+      const raw = await Store.net(() => Drive.siteInfo(Store.resolve(foto.id)));
+      if (!raw || raw.trashed) return { state: 'error', message: 'File non accessibile su Drive: nota non verificata.' };
+      const data = PhotoDescription.decode(raw);
+      const expected = String(foto.data.nota ?? '');
+      if (!raw.appProperties?.fc_meta && String(data.nota ?? '') === expected) return { state: 'legacy', message: 'La nota è nel vecchio formato Drive. Premi «Salva nota e sincronizza» per renderla leggibile nella Descrizione.' };
+      if (String(raw.description ?? '') !== expected) return { state: 'different', message: 'La nota su Drive è diversa da quella nell’app. Premi «Salva nota e sincronizza» per inviare questa versione.' };
+      return { state: 'verified', message: expected ? 'Nota verificata su Drive: File → Dettagli → Descrizione.' : 'Questa foto non ha una nota. Scrivila e premi «Salva nota e sincronizza».' };
+    } catch (e) {
+      return { state: e.offline || e.authNeeded ? 'offline' : 'error', message: 'Nota su Drive non verificata: ' + e.message };
+    }
+  },
+};
 function FotoView(cant, grp, fotos, idx) {
   if (!Access.canReadCantiere(cant)) return NoCantiereAccessView();
   const READONLY = !Access.canWriteCantiere(cant);
@@ -2143,13 +2167,47 @@ function FotoView(cant, grp, fotos, idx) {
   const next = h('button', { class: 'btn small', type: 'button', onclick: () => go(1) }, 'Succ.', icon('right'));
   const info = h('div', { class: 'card info-grid' });
   const nota = h('textarea', { id: 'f-nota', maxlength: 1000, placeholder: 'Descrizione della foto', readonly: READONLY || null });
-  const saveN = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: async () => { await Store.update(f, { nota: nota.value.trim() }); saveN.disabled = true; toast('Nota salvata'); } }, icon('check'), 'Salva nota');
-  nota.addEventListener('input', () => { saveN.disabled = nota.value.trim() === (f.data.nota || ''); });
+  const noteStatus = h('p', { class: 'hint', 'aria-live': 'polite' });
+  const driveLink = h('a', { class: 'btn small', target: '_blank', rel: 'noopener noreferrer', hidden: true }, icon('cloud'), 'Apri foto su Drive');
+  let noteCheckSeq = 0, verifiedKey = '';
+  const saveN = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: async () => {
+    const current = f; saveN.disabled = true; verifiedKey = '';
+    noteStatus.textContent = 'Salvataggio della nota nell’app…';
+    try {
+      await Store.update(current, { nota: nota.value.trim() });
+      if (current === f) { toast('Nota salvata nell’app. Verifico la sincronizzazione su Drive.'); await refreshNoteStatus(true); }
+    } catch (e) { noteStatus.textContent = 'Nota non salvata: ' + e.message; saveN.disabled = false; }
+  } }, icon('check'), 'Salva nota e sincronizza');
+  const verifyN = h('button', { class: 'btn small', type: 'button', onclick: () => refreshNoteStatus(true) }, 'Verifica nota su Drive');
+  nota.addEventListener('input', () => {
+    saveN.disabled = nota.value.trim() === (f.data.nota || '');
+    noteCheckSeq++; verifiedKey = '';
+    if (!saveN.disabled) noteStatus.textContent = 'Nota modificata ma non ancora salvata. Premi «Salva nota e sincronizza».';
+    else refreshNoteStatus(true).catch(console.error);
+  });
   const planBox = h('div', { class: 'form' });
   const titleEl = h('h1', { class: 'bar-title' });
   const bar = AppBar({ title: '', sub: grp.data.titolo, actions: READONLY ? [] : [iconBtn('trash', 'Elimina foto', del)] });
   bar.querySelector('.bar-title').replaceWith(titleEl);
-  const el = h('div', null, bar, h('main', { class: 'main gut no-bar' }, h('div', { class: 'pager' }, prev, pos, next), wrap, field('Nota', nota), READONLY ? null : h('div', { class: 'btn-row' }, saveN), info, planBox));
+  const el = h('div', null, bar, h('main', { class: 'main gut no-bar' }, h('div', { class: 'pager' }, prev, pos, next), wrap, field('Nota', nota), h('div', { class: 'btn-row' }, READONLY ? null : saveN, MODE === 'drive' ? verifyN : null), noteStatus, MODE === 'drive' ? driveLink : null, info, planBox));
+  async function refreshNoteStatus(force = false) {
+    if (nota.value.trim() !== String(f.data.nota ?? '')) {
+      noteStatus.textContent = 'Nota modificata ma non ancora salvata. Premi «Salva nota e sincronizza».';
+      return;
+    }
+    const current = f, key = Store.resolve(f.id) + '\n' + String(f.data.nota ?? '');
+    if (!force && verifiedKey === key) return;
+    const seq = ++noteCheckSeq;
+    const result = await PhotoNoteSync.check(current);
+    if (seq !== noteCheckSeq || current !== f) return;
+    noteStatus.textContent = result.message;
+    noteStatus.classList.toggle('err', result.state === 'error' || result.state === 'different');
+    if (result.state === 'verified') verifiedKey = key;
+    if (!READONLY && ['legacy', 'different', 'error'].includes(result.state)) saveN.disabled = false;
+    const id = Store.resolve(current.id);
+    driveLink.hidden = Store.isTemp(id);
+    if (!driveLink.hidden) driveLink.href = 'https://drive.google.com/file/d/' + encodeURIComponent(id) + '/view';
+  }
   function go(d) { const n = idx + d; if (n < 0 || n >= fotos.length) return; idx = n; f = fotos[idx]; render(); window.scrollTo(0, 0); }
   function render() {
     titleEl.textContent = `Foto n. ${f.reference || f.n}`; pos.textContent = `${idx + 1} / ${fotos.length}`;
@@ -2163,6 +2221,7 @@ function FotoView(cant, grp, fotos, idx) {
       h('dt', null, 'Planimetria'), h('dd', null, p ? p.data.label : (f.data.pianta ? 'non disponibile' : 'nessun punto')),
       h('dt', null, 'Stato'), h('dd', null, f.error ? 'Errore di caricamento: ' + f.error : f.pending ? 'In attesa di caricamento' : (MODE === 'drive' ? 'Archiviata su Google Drive' : 'Salvata sul dispositivo')));
     renderPlan(p);
+    refreshNoteStatus(true).catch(e => { noteStatus.textContent = 'Verifica nota non riuscita: ' + e.message; });
   }
   function renderPlan(p) {
     pv?.destroy(); pv = null; editPoint = null;
@@ -2190,7 +2249,7 @@ function FotoView(cant, grp, fotos, idx) {
     await Store.remove(f); toast('Foto eliminata'); Nav.back();
   }
   let loaded = false;
-  return { el, busyAuth: true, onShow: async () => { if (!loaded) { loaded = true; piante = (await Store.cachedList('pianta', cant.id)) || []; render(); } }, destroy: () => pv?.destroy() };
+  return { el, busyAuth: true, onShow: async () => { if (!loaded) { loaded = true; piante = (await Store.cachedList('pianta', cant.id)) || []; render(); } else await refreshNoteStatus(true); }, onStore: () => refreshNoteStatus().catch(console.error), destroy: () => { noteCheckSeq++; pv?.destroy(); } };
 }
 
 /* ---------- Impostazioni e coda ---------- */

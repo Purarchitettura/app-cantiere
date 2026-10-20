@@ -1,5 +1,5 @@
 // Foto Cantiere — service worker: l'app si apre anche senza rete.
-const VERSION = 'fc-v6-descrizioni-foto'; // cache del codice: aggiornarla non tocca i dati (IndexedDB e Drive)
+const VERSION = 'fc-v7-scatto-libero'; // cache del codice: aggiornarla non tocca i dati (IndexedDB e Drive)
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

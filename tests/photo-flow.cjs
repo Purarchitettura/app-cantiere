@@ -1,0 +1,36 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync(__dirname+'/../index.html','utf8');
+const parts=[html.slice(html.indexOf('const PhotoDescription = {'),html.indexOf('const Drive = {')),html.slice(html.indexOf('function photoLocation('),html.indexOf('function ScattoView(')),html.slice(html.indexOf('const PhotoNoteSync = {'),html.indexOf('function FotoView('))];
+let ops=[],raw=null,reads=0,networkError=null;
+const ctx={MODE:'drive',TextEncoder,Store:{ops:async()=>ops,same:(a,b)=>a!=null&&a===b,resolve:x=>x,isTemp:x=>x.startsWith('tmp~'),net:async fn=>{if(networkError)throw networkError;return fn();}},Drive:{siteInfo:async()=>{reads++;return raw;}}};
+vm.createContext(ctx);vm.runInContext(parts.join('\n')+'\nthis.check=PhotoNoteSync.check;this.encode=data=>PhotoDescription.encode(data);this.loc=photoLocation;',ctx);
+const plain=x=>JSON.parse(JSON.stringify(x));let tests=0;
+async function main(){
+  const empty={pianta:null,x:null,y:null,ang:null};
+  assert.deepEqual(plain(ctx.loc(null,null)),empty);tests++;
+  assert.deepEqual(plain(ctx.loc({id:'plan'},null)),empty);tests++;
+  assert.deepEqual(plain(ctx.loc(null,{x:0.5,y:0.6})),empty);tests++;
+  assert.deepEqual(plain(ctx.loc({id:'plan'},{x:0,y:0,ang:0})),{pianta:'plan',x:0,y:0,ang:0});tests++;
+  assert.deepEqual(plain(ctx.loc({id:'plan'},{x:0.5,y:0.6})),{pianta:'plan',x:0.5,y:0.6,ang:null});tests++;
+  const foto={id:'photo',data:{photoUid:'stable',num:3,nota:'Prova'}};
+  raw=ctx.encode(foto.data);
+  assert.equal((await ctx.check(foto)).state,'verified');tests++;
+  const count=reads;ops=[{id:'photo',type:'update'}];
+  assert.equal((await ctx.check(foto)).state,'pending');assert.equal(reads,count);tests++;
+  ops=[{id:'photo',error:'Permesso negato'}];assert.equal((await ctx.check(foto)).state,'error');assert.equal(reads,count);tests++;
+  ops=[];raw={...ctx.encode(foto.data),description:'Versione diversa'};
+  assert.equal((await ctx.check(foto)).state,'different');tests++;
+  raw={description:JSON.stringify(foto.data)};assert.equal((await ctx.check(foto)).state,'legacy');tests++;
+  raw=null;assert.equal((await ctx.check(foto)).state,'error');tests++;
+  raw={trashed:true,...ctx.encode(foto.data)};assert.equal((await ctx.check(foto)).state,'error');tests++;
+  raw=ctx.encode({...foto.data,nota:''});
+  const blank=await ctx.check({id:'photo',data:{nota:''}});assert.equal(blank.state,'verified');assert.match(blank.message,/non ha una nota/);tests++;
+  networkError=Object.assign(new Error('Offline'),{offline:true});assert.equal((await ctx.check(foto)).state,'offline');tests++;
+  networkError=Object.assign(new Error('Accesso scaduto'),{authNeeded:true});assert.equal((await ctx.check(foto)).state,'offline');tests++;
+  networkError=null;raw={description:'Prova',appProperties:{fc_meta:'1:1'}};
+  assert.equal((await ctx.check(foto)).state,'error');tests++;
+  assert.equal((await ctx.check({id:'tmp~new',data:{nota:'Prova'}})).state,'pending');tests++;
+  ctx.MODE='demo';assert.equal((await ctx.check(foto)).state,'local');tests++;
+  console.log(`PASS: ${tests} verifiche scatto senza punto e conferma note su Drive.`);
+}
+main().catch(e=>{console.error(e);process.exitCode=1;});
