@@ -269,7 +269,7 @@ mark { background: color-mix(in srgb, var(--signal) 45%, transparent); color: in
 .fc-compare-images img { width:100%; aspect-ratio:4/3; object-fit:contain; background:#222; border-radius:8px; }
 @media(max-width:480px){.fc-filters {grid-template-columns:1fr}.fc-compare-controls{grid-template-columns:1fr}}
 .fc-camera-overlay { position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,.9); display:flex; align-items:center; justify-content:center; padding:12px; }
-.fc-camera-panel { width:min(100%,600px); display:grid; gap:12px; padding:12px; border-radius:16px; background:var(--surface,#fff); color:var(--text,#111); }
+.fc-camera-panel { width:min(100%,600px); max-height:calc(100dvh - 24px); overflow:auto; box-sizing:border-box; display:grid; gap:12px; padding:12px; border-radius:16px; background:var(--surface,#fff); color:var(--text,#111); }
 .fc-camera-panel video { object-fit:contain; }
 @media (max-width:600px) { .fc-camera-panel { border-radius:10px; } .fc-camera-panel .btn.big { min-height:65px; } }
 .shot-sync-status { display:block; position:absolute; bottom:0; left:0; right:0; font-size:10px;
@@ -298,7 +298,7 @@ const CONFIG = {
   CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
 };
 const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
-const APP_VERSION = '2.5 foto alta qualità e zoom planimetria · 22/10/2026';
+const APP_VERSION = '2.6 qualità originale e zoom fotocamera · 22/10/2026';
 
 /* =====================================================================
    REGOLE PER GLI AGGIORNAMENTI (da rispettare in ogni modifica futura)
@@ -472,20 +472,70 @@ function loadScript(src) {
   });
 }
 
+/* Zoom hardware quando disponibile, ritaglio digitale oltre il limite della lente. */
+const CameraPhoto = {
+  zoomRange(track) {
+    let z; try { z = track.getCapabilities?.().zoom; } catch {}
+    return z && Number.isFinite(z.min) && Number.isFinite(z.max) && z.min > 0 && z.max >= z.min ? z : null;
+  },
+  async zoom(track, requested) {
+    const range = this.zoomRange(track), min = range ? Math.min(1, range.min) : 1;
+    const target = Math.max(Math.max(0.6, min), Math.min(5, +requested || 1));
+    let hardware = 1;
+    if (range) {
+      const desired = Math.max(range.min, Math.min(range.max, target));
+      const step = range.step || 0.01;
+      const value = Math.max(range.min, Math.min(range.max, range.min + Math.round((desired - range.min) / step) * step));
+      await track.applyConstraints({ advanced: [{ zoom: value }] });
+      hardware = track.getSettings?.().zoom || value;
+    }
+    // Un ritaglio non può simulare un campo visivo più largo della lente.
+    if (hardware > target + 0.05) throw new Error('Questo ingrandimento non è disponibile con la lente selezionata');
+    return { value: target, digital: Math.max(1, target / hardware), hardware };
+  },
+  async capture(video, track, digital = 1) {
+    let blob, image, closeImage = false;
+    if (typeof ImageCapture !== 'undefined') {
+      try {
+        const camera = new ImageCapture(track);
+        let options = {};
+        try {
+          const caps = await camera.getPhotoCapabilities();
+          if (caps.imageWidth?.max) options.imageWidth = caps.imageWidth.max;
+          if (caps.imageHeight?.max) options.imageHeight = caps.imageHeight.max;
+        } catch {}
+        blob = await camera.takePhoto(options);
+      } catch {} // Safari e alcune fotocamere espongono solo i fotogrammi video.
+    }
+    if (blob && digital <= 1.001) return blob;
+    try {
+      image = blob ? await decodeImage(blob) : video;
+      closeImage = !!blob;
+      const w = blob ? imgSize(image).w : video.videoWidth, height = blob ? imgSize(image).h : video.videoHeight;
+      if (!w || !height) throw new Error('Fotocamera non ancora pronta');
+      const zoom = Math.max(1, digital), sw = w / zoom, sh = height / zoom;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(sw)); canvas.height = Math.max(1, Math.round(sh));
+      canvas.getContext('2d').drawImage(image, (w - sw) / 2, (height - sh) / 2, sw, sh, 0, 0, canvas.width, canvas.height);
+      return await canvasToBlob(canvas, 'image/png');
+    } finally { if (closeImage) image?.close?.(); }
+  },
+};
+
 /* ---------- impostazioni locali ---------- */
 const PhotoQuality = {
-  version: 2,
+  version: 3,
   upgrade(saved = {}) {
-    return saved.photoQualityVersion === this.version ? saved : { ...saved, latoMax: 4096, qualita: 0.96, photoQualityVersion: this.version };
+    return saved.photoQualityVersion === this.version ? saved : { ...saved, latoMax: 0, qualita: 1, photoQualityVersion: this.version };
   },
-  jpegQuality(side) { return +side === 0 ? 0.98 : +side >= 4096 ? 0.96 : +side >= 3200 ? 0.95 : 0.92; },
+  jpegQuality(side) { return +side === 0 ? 1 : +side >= 4096 ? 0.96 : +side >= 3200 ? 0.95 : 0.92; },
   cameraConstraints(settings) {
-    const width = Math.min(4096, +settings.latoMax || 4096);
+    const width = Math.min(7680, +settings.latoMax || 7680);
     return { video: { facingMode: { ideal: 'environment' }, width: { ideal: width }, height: { ideal: Math.round(width * 0.75) } }, audio: false };
   },
 };
 const Settings = {
-  def: { firma: '', latoMax: 4096, qualita: 0.96, perPage: 4, photoQualityVersion: 2 },
+  def: { firma: '', latoMax: 0, qualita: 1, perPage: 4, photoQualityVersion: 3 },
   get() { try { return { ...this.def, ...PhotoQuality.upgrade(JSON.parse(localStorage.getItem('fc_settings') || '{}')) }; } catch { return { ...this.def }; } },
   set(patch) { const v = { ...this.get(), ...patch }; try { localStorage.setItem('fc_settings', JSON.stringify(v)); } catch {} return v; },
   lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -2141,33 +2191,90 @@ function ScattoView(cant, grp) {
     let stream;
     try { stream = await navigator.mediaDevices.getUserMedia(PhotoQuality.cameraConstraints(Settings.get())); }
     catch { toast('Fotocamera interna non disponibile: uso la fotocamera del telefono'); await take(true); return; }
-    const video = h('video', { autoplay: true, playsinline: true, muted: true, style: 'width:100%;max-height:65vh;background:#111;border-radius:12px' });
+    const video = h('video', { autoplay: true, playsinline: true, muted: true, style: 'width:100%;max-height:48vh;background:#111;border-radius:12px' });
     video.srcObject = stream;
+    let track = stream.getVideoTracks()[0], digitalZoom = 1, zoomPending = false, capturing = false, closed = false, zoomQueue = Promise.resolve();
     const overlay = h('div', { class: 'fc-camera-overlay' });
     const count = h('span', null, point ? 'Punto e direzione mantenuti' : 'Scatto senza punto sulla planimetria');
-    const stop = () => { stream.getTracks().forEach(t => t.stop()); overlay.remove(); liveCameraStop = null; };
+    const stop = () => { closed = true; stream.getTracks().forEach(t => t.stop()); overlay.remove(); liveCameraStop = null; };
     liveCameraStop?.();
     liveCameraStop = stop;
     const shutter = h('button', { class: 'btn primary big', type: 'button' }, icon('camera'), 'Scatta');
-    shutter.onclick = async () => {
-      if (!video.videoWidth) { toast('Fotocamera non ancora pronta', 'err'); return; }
-      shutter.disabled = true;
+    const zoomLabel = h('output', { 'aria-live': 'polite' }, '1×');
+    const zoomInfo = h('small', { class: 'hint' });
+    const slider = h('input', { type: 'range', min: 1, max: 5, step: 0.1, value: 1, 'aria-label': 'Zoom fotocamera', style: 'width:100%;touch-action:pan-y' });
+    const presets = h('div', { class: 'btn-row' });
+    function refreshZoom() {
+      const range = CameraPhoto.zoomRange(track);
+      slider.min = Math.max(0.6, range ? Math.min(1, range.min) : 1);
+      slider.value = 1; digitalZoom = 1; video.style.transform = ''; zoomLabel.textContent = '1×';
+      zoomInfo.textContent = +slider.min <= 0.6 ? 'Zoom 0,6–5×. Oltre il limite della lente lo zoom è digitale.' : '0,6× non disponibile con questa lente nel browser. Seleziona l’ultragrandangolo, se presente, oppure usa la fotocamera del telefono.';
+      presets.replaceChildren(...[0.6, 1, 2, 3, 5].map(value => h('button', { class: 'btn small', type: 'button', disabled: value < +slider.min || null, onclick: () => changeZoom(value) }, String(value).replace('.', ',') + '×')));
+    }
+    function changeZoom(value) {
+      if (capturing || closed) return;
+      zoomPending = true; shutter.disabled = true;
+      zoomQueue = zoomQueue.then(async () => {
+        if (closed) return;
+        try {
+          const zoom = await CameraPhoto.zoom(track, value);
+          if (closed) return;
+          digitalZoom = zoom.digital; slider.value = zoom.value;
+          video.style.transform = `scale(${digitalZoom})`;
+          zoomLabel.textContent = String(Math.round(zoom.value * 10) / 10).replace('.', ',') + '×' + (digitalZoom > 1.01 ? ' · digitale' : '');
+        } catch (e) { toast('Zoom non applicato: ' + e.message, 'err'); }
+      });
+      const current = zoomQueue;
+      current.finally(() => { if (zoomQueue === current) { zoomPending = false; if (!closed) shutter.disabled = false; } });
+    }
+    slider.oninput = () => changeZoom(+slider.value);
+    const lens = h('select', { 'aria-label': 'Fotocamera / lente', style: 'width:100%' });
+    lens.onchange = async () => {
+      await zoomQueue;
+      if (closed || capturing) return;
+      shutter.disabled = true; slider.disabled = true; lens.disabled = true;
+      let next;
       try {
-        const c = document.createElement('canvas'); c.width = video.videoWidth; c.height = video.videoHeight;
-        c.getContext('2d').drawImage(video, 0, 0);
-        // Un solo passaggio JPEG nel salvataggio finale: lo scatto intermedio è senza perdita.
-        const b = await canvasToBlob(c, 'image/png');
+        const constraints = PhotoQuality.cameraConstraints(Settings.get());
+        delete constraints.video.facingMode; constraints.video.deviceId = { exact: lens.value };
+        // Rilascia la lente corrente: diversi telefoni non consentono due stream simultanei.
+        stream.getTracks().forEach(t => t.stop());
+        next = await navigator.mediaDevices.getUserMedia(constraints);
+        if (closed) { next.getTracks().forEach(t => t.stop()); return; }
+        stream = next; track = stream.getVideoTracks()[0]; video.srcObject = stream;
+        await video.play(); refreshZoom(); changeZoom(1);
+      } catch (e) { zoomInfo.textContent = 'Fotocamera non disponibile: chiudi e riapri la fotocamera, oppure usa quella del telefono.'; toast(e.message || 'Cambio lente non riuscito', 'err'); }
+      finally { lens.disabled = false; slider.disabled = false; if (!zoomPending) shutter.disabled = false; }
+    };
+    refreshZoom();
+    changeZoom(1);
+    navigator.mediaDevices.enumerateDevices?.().then(devices => {
+      if (closed) return;
+      const cameras = devices.filter(d => d.kind === 'videoinput' && d.deviceId);
+      const current = track.getSettings?.().deviceId;
+      lens.replaceChildren(...cameras.map((d, i) => h('option', { value: d.deviceId, selected: d.deviceId === current || null }, d.label || 'Fotocamera ' + (i + 1))));
+      lens.hidden = cameras.length < 2;
+    }).catch(() => { lens.hidden = true; });
+    shutter.onclick = async () => {
+      if (zoomPending || capturing) return;
+      if (!video.videoWidth) { toast('Fotocamera non ancora pronta', 'err'); return; }
+      capturing = true; shutter.disabled = true; slider.disabled = true; lens.disabled = true;
+      try {
+        const b = await CameraPhoto.capture(video, track, digitalZoom);
         const before = shots.length;
-        await saveFiles([new File([b], 'scatto-' + Date.now() + '.png', { type: 'image/png' })], true);
+        await saveFiles([new File([b], 'scatto-' + Date.now(), { type: b.type || 'image/jpeg' })], true);
         if (shots.length > before) count.textContent = shots.length + ' foto salvate sul dispositivo · puoi continuare';
         else count.textContent = 'Salvataggio non riuscito: verifica lo spazio e riprova';
       } catch (e) {
         count.textContent = 'Scatto non salvato: ' + (e.message || e);
         toast(count.textContent, 'err');
-      } finally { shutter.disabled = false; }
+      } finally { capturing = false; shutter.disabled = false; slider.disabled = false; lens.disabled = false; }
     };
     overlay.append(h('div', { class: 'fc-camera-panel' }, h('div', { class: 'btn-row' }, count,
-      h('button', { class: 'btn small', type: 'button', onclick: stop }, 'Chiudi')), video, shutter));
+      h('button', { class: 'btn small', type: 'button', onclick: stop }, 'Chiudi')),
+      h('div', { style: 'overflow:hidden;border-radius:12px;background:#111;line-height:0' }, video),
+      lens, h('div', { class: 'form' }, zoomLabel, slider, presets, zoomInfo), shutter,
+      h('button', { class: 'btn small', type: 'button', onclick: async () => { stop(); await take(true); } }, 'Usa fotocamera del telefono')));
     document.body.append(overlay);
     video.play().catch(() => {});
   }
@@ -2351,7 +2458,7 @@ async function migratePhotoDescriptions() {
 function SettingsView() {
   const st = Settings.get();
   const firma = h('input', { id: 'st-firma', value: st.firma, placeholder: MODE === 'drive' ? (Auth.user?.name || '') : CONFIG.INTESTAZIONE_DEFAULT });
-  const lato = h('select', { id: 'st-lato' }, [[1600, 'Leggera (1600 px)'], [2048, 'Standard (2048 px)'], [2560, 'Alta (2560 px)'], [3200, 'Molto alta (3200 px)'], [4096, 'Massima (4096 px, JPEG 96%)'], [0, 'Risoluzione originale (JPEG 98%)']].map(([v, l]) => h('option', { value: v, selected: +st.latoMax === v || null }, l)));
+  const lato = h('select', { id: 'st-lato' }, [[1600, 'Leggera (1600 px)'], [2048, 'Standard (2048 px)'], [2560, 'Alta (2560 px)'], [3200, 'Molto alta (3200 px)'], [4096, 'Massima (4096 px, JPEG 96%)'], [0, 'Risoluzione originale (JPEG 100%)']].map(([v, l]) => h('option', { value: v, selected: +st.latoMax === v || null }, l)));
   const save = () => { Settings.set({ firma: firma.value.trim(), latoMax: +lato.value, qualita: PhotoQuality.jpegQuality(+lato.value), photoQualityVersion: PhotoQuality.version }); toast('Impostazioni salvate'); };
   firma.addEventListener('change', save); lato.addEventListener('change', save);
   const queue = h('div', { class: 'card' });
@@ -2812,4 +2919,5 @@ boot().catch(e => { console.error(e); $('#app').replaceChildren(h('div', { class
 </script>
 </body>
 </html>
+
 

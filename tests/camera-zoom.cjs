@@ -1,0 +1,33 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync(__dirname+'/../index.html','utf8');
+const source=html.slice(html.indexOf('const CameraPhoto = {'),html.indexOf('/* ---------- impostazioni locali'));
+let canvas,draw,photoOptions,closed=0,tests=0;
+const ctx={document:{createElement:()=>canvas={getContext:()=>({drawImage:(...args)=>draw=args})}},canvasToBlob:async()=>({type:'image/png'}),decodeImage:async()=>({width:8000,height:6000,close:()=>closed++}),imgSize:im=>({w:im.width,h:im.height})};
+vm.createContext(ctx);vm.runInContext(source+'\nthis.camera=CameraPhoto;',ctx);
+const plain=x=>JSON.parse(JSON.stringify(x));
+async function main(){
+ const camera=ctx.camera;
+ let native=1,calls=[];
+ const track={getCapabilities:()=>({zoom:{min:0.6,max:3,step:0.1}}),getSettings:()=>({zoom:native}),applyConstraints:async c=>{calls.push(c);native=c.advanced[0].zoom;}};
+ assert.equal(camera.zoomRange({}),null);tests++;
+ assert.equal(camera.zoomRange({getCapabilities(){throw Error('unsupported');}}),null);tests++;
+ let result=await camera.zoom(track,0.6);assert.equal(result.value,0.6);assert.equal(result.digital,1);assert.equal(native,0.6);tests++;
+ result=await camera.zoom(track,2);assert.equal(native,2);assert.equal(result.digital,1);tests++;
+ result=await camera.zoom(track,5);assert.equal(native,3);assert.equal(result.digital,5/3);tests++;
+ result=await camera.zoom(track,99);assert.equal(result.value,5);tests++;
+ result=await camera.zoom({},0.6);assert.equal(result.value,1);assert.equal(result.digital,1);tests++;
+ result=await camera.zoom({},5);assert.equal(result.value,5);assert.equal(result.digital,5);tests++;
+ await assert.rejects(()=>camera.zoom({...track,applyConstraints:async()=>{throw Error('denied');}},2),/denied/);tests++;
+ const video={videoWidth:4000,videoHeight:3000};
+ await camera.capture(video,{},2);assert.equal(canvas.width,2000);assert.equal(canvas.height,1500);assert.deepEqual(draw.slice(1),[1000,750,2000,1500,0,0,2000,1500]);tests++;
+ const original={type:'image/jpeg'};
+ ctx.ImageCapture=class{async getPhotoCapabilities(){return {imageWidth:{max:8000},imageHeight:{max:6000}};}async takePhoto(options){photoOptions=options;return original;}};
+ assert.equal(await camera.capture(video,{},1),original);assert.deepEqual(plain(photoOptions),{imageWidth:8000,imageHeight:6000});tests++;
+ await camera.capture(video,{},2);assert.equal(canvas.width,4000);assert.equal(canvas.height,3000);assert.equal(closed,1);tests++;
+ ctx.ImageCapture=class{async takePhoto(){throw Error('unsupported');}};
+ await camera.capture(video,{},1);assert.equal(canvas.width,4000);assert.equal(canvas.height,3000);tests++;
+ await assert.rejects(()=>camera.capture({videoWidth:0,videoHeight:0},{},1),/non ancora pronta/);tests++;
+ const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).filter(s=>s.trim());scripts.forEach(s=>new vm.Script(s));tests++;
+ console.log('PASS: '+tests+' verifiche zoom hardware/digitale, 0.6 reale, ritaglio, foto ad alta risoluzione e fallback.');
+}
+main().catch(e=>{console.error(e);process.exitCode=1;});

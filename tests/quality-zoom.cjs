@@ -6,11 +6,14 @@ async function main(){
   const qualitySource=html.slice(html.indexOf('const PhotoQuality = {'),html.indexOf('/* ---------- archivio sul dispositivo'));
   const qctx={localStorage:{getItem:()=>saved,setItem:(_,v)=>{saved=v;}}};
   vm.createContext(qctx);vm.runInContext(qualitySource+'\nthis.settings=Settings;this.quality=PhotoQuality;',qctx);
-  assert.equal(qctx.settings.get().latoMax,4096);assert.equal(qctx.settings.get().qualita,0.96);tests++;
+  assert.equal(qctx.settings.get().latoMax,0);assert.equal(qctx.settings.get().qualita,1);tests++;
+  saved=JSON.stringify({latoMax:4096,qualita:0.96,photoQualityVersion:2,firma:'Firma v2'});
+  assert.equal(qctx.settings.get().latoMax,0);assert.equal(qctx.settings.get().qualita,1);assert.equal(qctx.settings.get().firma,'Firma v2');tests++;
+  assert.equal(qctx.quality.cameraConstraints(qctx.settings.get()).video.width.ideal,7680);tests++;
   saved=JSON.stringify({latoMax:2048,qualita:0.85,firma:'Firma da conservare',perPage:6});
-  const upgraded=qctx.settings.get();assert.equal(upgraded.latoMax,4096);assert.equal(upgraded.firma,'Firma da conservare');assert.equal(upgraded.perPage,6);tests++;
+  const upgraded=qctx.settings.get();assert.equal(upgraded.latoMax,0);assert.equal(upgraded.firma,'Firma da conservare');assert.equal(upgraded.perPage,6);tests++;
   qctx.settings.set({latoMax:1600,qualita:0.92});assert.equal(qctx.settings.get().latoMax,1600);tests++;
-  assert.equal(qctx.quality.jpegQuality(0),0.98);assert.equal(qctx.quality.jpegQuality(4096),0.96);tests++;
+  assert.equal(qctx.quality.jpegQuality(0),1);assert.equal(qctx.quality.jpegQuality(4096),0.96);tests++;
   const constraints=qctx.quality.cameraConstraints({latoMax:4096});assert.equal(constraints.video.width.ideal,4096);assert.equal(constraints.video.height.ideal,3072);assert.equal(constraints.audio,false);tests++;
   let canvas,qualityUsed,closed=0;
   const resizeSource=html.slice(html.indexOf('async function resizeToJpeg('),html.indexOf('async function pdfPageToJpeg('));
@@ -66,3 +69,4 @@ async function main(){
   console.log(`PASS: ${tests} verifiche qualità foto, zoom confinato, trascinamento e tocchi.`);
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});
+
