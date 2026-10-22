@@ -298,7 +298,7 @@ const CONFIG = {
   CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
 };
 const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
-const APP_VERSION = '2.6 qualità originale e zoom fotocamera · 22/10/2026';
+const APP_VERSION = '2.7 scatto singolo senza conferma · 22/10/2026';
 
 /* =====================================================================
    REGOLE PER GLI AGGIORNAMENTI (da rispettare in ogni modifica futura)
@@ -2117,14 +2117,13 @@ function ScattoView(cant, grp) {
   const nota = h('input', { id: 's-nota', maxlength: 1000, placeholder: 'Es. Parete nord cucina, tracce impianto', autocomplete: 'off' });
   const stripLbl = h('div', { class: 'section-label' });
   const strip = h('div', { class: 'strip' });
-  const camBtn = h('button', { class: 'btn primary big grow', type: 'button', onclick: () => take(true) }, icon('camera'), 'Scatta / prossimo scatto');
+  const camBtn = h('button', { class: 'btn primary big grow', type: 'button', onclick: openSingleCamera }, icon('camera'), 'Scatta foto');
   const galBtn = h('button', { class: 'btn big', type: 'button', onclick: () => take(false) }, icon('image'), 'Galleria');
-  const liveBtn = h('button', { class: 'btn small', type: 'button', onclick: openLiveCamera }, icon('camera'), 'Fotocamera continua');
   const el = h('div', null,
     AppBar({ title: 'Scatta foto', sub: grp.data.titolo }),
     h('main', { class: 'main gut' }, chips, planBox, hint, h('div', { class: 'btn-row' }, dirBtn, clrBtn, newBtn),
       field('Nota per le prossime foto (facoltativa)', nota, 'Resta valida finché non la cambi; ogni foto si può correggere dopo.'),
-      h('div', { class: 'btn-row' }, liveBtn), stripLbl, strip),
+      stripLbl, strip),
     actionBar(galBtn, camBtn));
   function paint() {
     const hasPlan = !!sel;
@@ -2138,7 +2137,7 @@ function ScattoView(cant, grp) {
     else hint.replaceChildren(icon('check'), h('span', null, h('b', null, 'Punto fissato.'), ' Scatta quante foto vuoi da qui. Per spostarlo tocca di nuovo la pianta.'));
     camBtn.classList.remove('waiting'); galBtn.classList.remove('waiting');
     pv?.setPoints(point ? [{ x: point.x, y: point.y, label: '', active: true, dirs: point.ang != null ? [{ ang: point.ang }] : [] }] : []);
-    stripLbl.textContent = shots.length ? `Serie rapida: ${shots.length} foto · note modificabili dopo` : '';
+    stripLbl.textContent = shots.length ? `Foto scattate: ${shots.length} · note modificabili dopo` : '';
     stripLbl.hidden = !shots.length;
   }
   function renderChips() {
@@ -2186,19 +2185,19 @@ function ScattoView(cant, grp) {
       await updateShotStatuses(); paint();
     } catch (e) { b?.close(); toast('Foto non salvata: ' + e.message, 'err'); }
   }
-  async function openLiveCamera() {
-    if (!navigator.mediaDevices?.getUserMedia) { await take(true); return; }
+  async function openSingleCamera() {
+    if (!navigator.mediaDevices?.getUserMedia) { toast('Scatto diretto non supportato: la fotocamera del telefono può richiedere conferma'); await take(true); return; }
     let stream;
     try { stream = await navigator.mediaDevices.getUserMedia(PhotoQuality.cameraConstraints(Settings.get())); }
-    catch { toast('Fotocamera interna non disponibile: uso la fotocamera del telefono'); await take(true); return; }
+    catch { toast('Scatto diretto non disponibile: la fotocamera del telefono può richiedere conferma'); await take(true); return; }
     const video = h('video', { autoplay: true, playsinline: true, muted: true, style: 'width:100%;max-height:48vh;background:#111;border-radius:12px' });
     video.srcObject = stream;
     let track = stream.getVideoTracks()[0], digitalZoom = 1, zoomPending = false, capturing = false, closed = false, zoomQueue = Promise.resolve();
     const overlay = h('div', { class: 'fc-camera-overlay' });
     const count = h('span', null, point ? 'Punto e direzione mantenuti' : 'Scatto senza punto sulla planimetria');
-    const stop = () => { closed = true; stream.getTracks().forEach(t => t.stop()); overlay.remove(); liveCameraStop = null; };
-    liveCameraStop?.();
-    liveCameraStop = stop;
+    const stop = () => { closed = true; stream.getTracks().forEach(t => t.stop()); overlay.remove(); cameraStop = null; };
+    cameraStop?.();
+    cameraStop = stop;
     const shutter = h('button', { class: 'btn primary big', type: 'button' }, icon('camera'), 'Scatta');
     const zoomLabel = h('output', { 'aria-live': 'polite' }, '1×');
     const zoomInfo = h('small', { class: 'hint' });
@@ -2263,7 +2262,7 @@ function ScattoView(cant, grp) {
         const b = await CameraPhoto.capture(video, track, digitalZoom);
         const before = shots.length;
         await saveFiles([new File([b], 'scatto-' + Date.now(), { type: b.type || 'image/jpeg' })], true);
-        if (shots.length > before) count.textContent = shots.length + ' foto salvate sul dispositivo · puoi continuare';
+        if (shots.length > before) stop();
         else count.textContent = 'Salvataggio non riuscito: verifica lo spazio e riprova';
       } catch (e) {
         count.textContent = 'Scatto non salvato: ' + (e.message || e);
@@ -2274,11 +2273,11 @@ function ScattoView(cant, grp) {
       h('button', { class: 'btn small', type: 'button', onclick: stop }, 'Chiudi')),
       h('div', { style: 'overflow:hidden;border-radius:12px;background:#111;line-height:0' }, video),
       lens, h('div', { class: 'form' }, zoomLabel, slider, presets, zoomInfo), shutter,
-      h('button', { class: 'btn small', type: 'button', onclick: async () => { stop(); await take(true); } }, 'Usa fotocamera del telefono')));
+      h('button', { class: 'btn small', type: 'button', onclick: async () => { stop(); await take(true); } }, 'Fotocamera del telefono (può richiedere conferma)')));
     document.body.append(overlay);
     video.play().catch(() => {});
   }
-  let liveCameraStop = null;
+  let cameraStop = null;
   let unsubscribeSync = null;
   async function updateShotStatuses() {
     const ops = await Store.ops();
@@ -2304,7 +2303,7 @@ function ScattoView(cant, grp) {
     choose(last && last !== 'none' ? piante.find(p => Store.resolve(p.id) === last) || null : null);
   }
   let loaded = false;
-  return { el, busyAuth: true, onShow: () => { if (!loaded) { loaded = true; load(); } }, destroy: () => { liveCameraStop?.(); unsubscribeSync?.(); pv?.destroy(); } };
+  return { el, busyAuth: true, onShow: () => { if (!loaded) { loaded = true; load(); } }, destroy: () => { cameraStop?.(); unsubscribeSync?.(); pv?.destroy(); } };
 }
 
 /* ---------- Foto singola ---------- */
@@ -2919,5 +2918,6 @@ boot().catch(e => { console.error(e); $('#app').replaceChildren(h('div', { class
 </script>
 </body>
 </html>
+
 
 

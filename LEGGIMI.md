@@ -4,7 +4,13 @@ App web installabile su iPhone e Android: si apre dal browser e si aggiunge alla
 
 ## Cosa fa
 
-### Qualità originale e zoom fotocamera (versione 2.6)
+### Scatto singolo senza approvazione (versione 2.7)
+
+La modalità Fotocamera continua è stata rimossa. **Scatta foto** apre direttamente la fotocamera interna, con qualità originale e controlli zoom della versione 2.6. Premendo **Scatta**, una sola foto viene salvata immediatamente senza una schermata di approvazione; la fotocamera si chiude e si torna alla planimetria. Punto e nota restano disponibili per lo scatto successivo. Durante il salvataggio il pulsante è disabilitato per evitare duplicati. Se lo scatto o il salvataggio fallisce, la fotocamera resta aperta per riprovare.
+
+Le autorizzazioni iniziali all'uso della fotocamera restano necessarie. Se il browser non supporta lo scatto interno o l'accesso viene negato, il ripiego sulla fotocamera del telefono è segnalato: l'eventuale conferma del sistema operativo non può essere rimossa da una pagina web. Il comando esplicito per la fotocamera del telefono riporta questa limitazione.
+
+### Qualità originale e zoom fotocamera (versione 2.6 — controlli mantenuti nello scatto singolo)
 
 Le nuove foto mantengono per impostazione predefinita la risoluzione ricevuta, senza limite al lato lungo, con JPEG al 100%. Il JPEG resta un formato con perdita: non è RAW né una copia identica del file originale. Il nuovo valore viene applicato anche alle impostazioni precedenti; firma e preferenze dei rapporti restano conservate. Le foto già archiviate non cambiano. È possibile scegliere nuovamente una qualità inferiore in Impostazioni.
 
@@ -181,6 +187,7 @@ Ricarica il file su GitHub. Finché `CLIENT_ID` e `ROOT_FOLDER_ID` sono vuoti, l
 - **Eliminazioni**: le cartelle e le foto eliminate finiscono nel cestino di Google Drive. Se Drive non permette a un collaboratore di eliminare un file caricato da altri, l'app lo segnala nella coda e l'operazione si può annullare.
 - **Qualità delle foto**: lo standard mantiene la risoluzione originale ricevuta, con ricodifica JPEG al 100%, modificabile in *Impostazioni*. Lo zoom digitale ritaglia i pixel disponibili senza ingrandirli artificialmente.
 - **Costi**: GitHub Pages, Google Cloud (per questo uso) e lo spazio Drive del piano gratuito non hanno costi. Lo spazio occupato dalle foto conta sulla quota Drive di chi le carica.
+
 
 
 
