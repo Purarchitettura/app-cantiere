@@ -298,7 +298,7 @@ const CONFIG = {
   CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
 };
 const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
-const APP_VERSION = '2.10 download originali ad alta qualità · 22/10/2026';
+const APP_VERSION = '2.11 salvataggio gruppi foto e ZIP · 22/10/2026';
 
 /* =====================================================================
    REGOLE PER GLI AGGIORNAMENTI (da rispettare in ogni modifica futura)
@@ -1095,6 +1095,43 @@ const PhotoExport = {
       try { await navigator.share({ files: [file] }); }
       catch (e) { if (e.name !== 'AbortError') throw e; }
     } else await saveOrShare(file, file.name);
+  },
+};
+
+const PhotoBatch = {
+  canShare(files) { try { return !!navigator.share && !!navigator.canShare?.({ files }); } catch { return false; } },
+  share(files) { return navigator.share({ files }); },
+  async zip(files) {
+    if (!files.length || files.length > 65535) throw new Error('Numero di foto non supportato per questo archivio');
+    const enc = new TextEncoder(), parts = [], central = []; let offset = 0;
+    const date = new Date(), time = (date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1);
+    const day = ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+    for (const file of files) {
+      if (file.size > 0xffffffff) throw new Error('Una foto è troppo grande per lo ZIP');
+      const name = enc.encode(file.name); let crc = 0xffffffff;
+      // Legge un megabyte alla volta, senza ricodificare né tenere tutti i JPEG in memoria.
+      for (let p = 0; p < file.size; p += 1048576) {
+        const bytes = new Uint8Array(await file.slice(p, p + 1048576).arrayBuffer());
+        for (const byte of bytes) crc = CRC_TABLE[(crc ^ byte) & 255] ^ (crc >>> 8);
+      }
+      crc = (crc ^ 0xffffffff) >>> 0;
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true);
+      lh.setUint16(10, time, true); lh.setUint16(12, day, true); lh.setUint32(14, crc, true);
+      lh.setUint32(18, file.size, true); lh.setUint32(22, file.size, true); lh.setUint16(26, name.length, true);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+      ch.setUint16(12, time, true); ch.setUint16(14, day, true); ch.setUint32(16, crc, true);
+      ch.setUint32(20, file.size, true); ch.setUint32(24, file.size, true); ch.setUint16(28, name.length, true); ch.setUint32(42, offset, true);
+      parts.push(new Uint8Array(lh.buffer), name, file); central.push(new Uint8Array(ch.buffer), name);
+      offset += 30 + name.length + file.size;
+      if (offset > 0xffffffff) throw new Error('Il gruppo supera 4 GB: salva le foto singolarmente');
+    }
+    const cdSize = central.reduce((total, p) => total + p.length, 0), end = new DataView(new ArrayBuffer(22));
+    if (offset + cdSize > 0xffffffff) throw new Error('Archivio ZIP troppo grande');
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+    end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+    return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: 'application/zip' });
   },
 };
 
@@ -2263,16 +2300,45 @@ function GruppoView(cant, grp) {
   }
   async function more() {
     const items = [];
-    if (canShareFiles() && fotos?.length) items.push({ icon: 'download', label: 'Salva le foto sul telefono', value: 'share' });
+    if (fotos?.length) items.push({ icon: 'download', label: 'Salva le foto sul telefono', value: 'share' });
     if (!READONLY) items.push({ icon: 'edit', label: 'Modifica titolo e descrizione', value: 'edit' }, { icon: 'trash', label: 'Elimina gruppo', value: 'del', kind: 'danger' });
     if (!items.length) return;
     const a = await sheet(grp.data.titolo, items);
     if (a === 'share') {
       const b = busy('Preparazione delle foto…'); const files = [];
       try { for (const f of fotos) { files.push(new File([await Store.getBlob(f)], `${slug(grp.data.titolo)}_${String(f.n).padStart(3, '0')}_${String(f.data.photoUid || f.id).slice(-8)}.jpg`, { type: 'image/jpeg' })); b.set(`Foto ${files.length} di ${fotos.length}`, files.length / fotos.length); } }
-      catch (e) { b.close(); return toast('Alcune foto non sono disponibili senza rete', 'err'); }
-      b.close();
-      await modal({ title: `${files.length} foto pronte`, body: h('p', { class: 'modal-text' }, 'Vengono usati gli originali presenti su questo telefono; per le altre foto si usa la copia Drive. Scegli «Salva immagini» (iPhone) o la Galleria / File (Android).'), actions: [{ label: 'Annulla', value: null }, { label: 'Salva sul telefono', kind: 'primary', icon: 'download', onClick: () => { navigator.share({ files }).catch(() => {}); } }] });
+      catch (e) { b.close(); await b.done; return toast('Preparazione delle foto non riuscita: ' + e.message, 'err'); }
+      b.close(); await b.done;
+      const status = h('p', { class: 'hint', 'aria-live': 'polite' });
+      let sharing = false, zip = null;
+      const supported = PhotoBatch.canShare(files);
+      status.textContent = supported ? 'Salva tutte le immagini dal pannello del telefono, oppure usa lo ZIP.' : 'Il browser non supporta il salvataggio multiplo delle immagini. Usa lo ZIP: contiene tutte le foto senza ridurne la qualità.';
+      const actions = [];
+      if (supported) actions.push({ label: 'Salva tutte le immagini', kind: 'primary', icon: 'download', onClick: ev => {
+        if (sharing) return false;
+        const button = ev.currentTarget; sharing = true; button.disabled = true;
+        status.textContent = 'Apertura del pannello del telefono…';
+        try {
+          PhotoBatch.share(files).then(() => { status.textContent = 'Pannello del telefono completato. La destinazione scelta gestisce il salvataggio.'; })
+            .catch(e => { status.textContent = e.name === 'AbortError' ? 'Salvataggio annullato o nessuna destinazione disponibile. Puoi riprovare oppure scaricare lo ZIP.' : 'Salvataggio multiplo non riuscito: ' + (e.message || e.name) + '. Usa lo ZIP oppure salva le foto singolarmente.'; })
+            .finally(() => { sharing = false; button.disabled = false; });
+        } catch (e) { sharing = false; button.disabled = false; status.textContent = 'Salvataggio multiplo non disponibile: ' + e.message + '. Usa lo ZIP.'; }
+        return false;
+      } });
+      actions.push({ label: 'Prepara ZIP con tutte le foto', icon: 'download', kind: supported ? '' : 'primary', onClick: async ev => {
+        const button = ev.currentTarget;
+        if (zip) {
+          try { await saveOrShare(zip, slug(grp.data.titolo) + '_foto.zip'); status.textContent = 'Download ZIP avviato: cerca il file nei download del telefono. Estrai lo ZIP per trovare le foto.'; }
+          catch (e) { status.textContent = 'Download ZIP non avviato: ' + e.message; }
+          return false;
+        }
+        button.disabled = true; status.textContent = 'Preparazione dello ZIP senza ridurre le foto…';
+        try { zip = await PhotoBatch.zip(files); button.textContent = 'Scarica ZIP'; status.textContent = 'Archivio pronto. Premi «Scarica ZIP» per salvare tutte le foto; poi estrailo dai File / Download del telefono.'; }
+        catch (e) { status.textContent = 'ZIP non preparato: ' + e.message; }
+        finally { button.disabled = false; }
+        return false;
+      } }, { label: 'Chiudi', value: null });
+      await modal({ title: `${files.length} foto pronte`, body: h('div', { class: 'form' }, h('p', { class: 'modal-text' }, 'Vengono usati gli originali presenti su questo telefono; per le altre foto si usa la copia Drive. Lo ZIP conserva i file senza altre compressioni.'), status), actions });
     }
     if (a === 'edit') {
       const t = h('input', { id: 'ge-t', maxlength: 150, value: grp.data.titolo }), d = h('input', { id: 'ge-d', type: 'date', value: grp.data.data || '' }), ds = h('textarea', { id: 'ge-ds', maxlength: 2000 }); ds.value = grp.data.descrizione || '';
@@ -3137,6 +3203,7 @@ boot().catch(e => { console.error(e); $('#app').replaceChildren(h('div', { class
 </script>
 </body>
 </html>
+
 
 
 

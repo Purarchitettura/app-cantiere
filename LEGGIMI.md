@@ -4,6 +4,16 @@ App web installabile su iPhone e Android: si apre dal browser e si aggiunge alla
 
 ## Cosa fa
 
+### Salvataggio di tutte le foto del gruppo (versione 2.11)
+
+Il comando **Altre azioni → Salva le foto sul telefono** è disponibile anche nei browser che non supportano la condivisione di più immagini. L'app prepara i file ad alta qualità presenti sul dispositivo, altrimenti usa la copia Drive, senza ricomprimere le foto.
+
+Se il telefono supporta l'intero gruppo, **Salva tutte le immagini** apre direttamente il pannello di sistema. Il supporto viene verificato sulle foto effettive, non su un file di prova generico. Se l'apertura fallisce o viene annullata, la finestra resta aperta e mostra l'errore, senza dichiarare che le foto sono state salvate. L'esito del pannello di condivisione non dimostra da solo il salvataggio in galleria.
+
+In alternativa scegliere **Prepara ZIP con tutte le foto**, attendere e poi premere **Scarica ZIP**. Il secondo tocco avvia il download dal gesto dell'utente, compatibile anche con i browser che bloccano download dopo lunghe preparazioni. Lo ZIP si trova nei File / Download del telefono: estrarlo per ottenere i JPEG. L'archivio conserva i file originali byte per byte, con controlli CRC e lettura a blocchi per non duplicare tutte le foto in memoria. Lo ZIP non è un inserimento automatico delle foto nella galleria. Per gruppi oltre 4 GB usare esportazioni singole.
+
+Verificato un download ZIP reale dal gruppo di esempio: tre JPEG a 1600×1200 pixel, tutti con CRC valido. La gestione del pannello nativo su un telefono fisico richiede la prova sul dispositivo.
+
 ### Download dell'originale dalla singola foto (versione 2.10)
 
 Aprendo una foto è disponibile **Salva originale ad alta qualità** quando il file locale è presente sul dispositivo, anche mentre la foto è ancora in attesa di sincronizzazione. Il download e la condivisione usano gli stessi byte del file locale: non passa dalla miniatura, non ridimensiona e non ricomprime. Questo vale sia per la fotocamera continua sia per lo scatto singolo: entrambe le modalità salvano la foto ad alta qualità prima di preparare la copia Drive.
@@ -207,6 +217,7 @@ Ricarica il file su GitHub. Finché `CLIENT_ID` e `ROOT_FOLDER_ID` sono vuoti, l
 - **Eliminazioni**: le cartelle e le foto eliminate finiscono nel cestino di Google Drive. Se Drive non permette a un collaboratore di eliminare un file caricato da altri, l'app lo segnala nella coda e l'operazione si può annullare.
 - **Qualità delle foto**: sul dispositivo si mantiene la risoluzione ricevuta con JPEG al 100%; la sola copia Drive viene compressa entro 1,5 MB. Lo zoom digitale ritaglia i pixel disponibili senza ingrandirli artificialmente.
 - **Costi**: GitHub Pages, Google Cloud (per questo uso) e lo spazio Drive del piano gratuito non hanno costi. Lo spazio occupato dalle foto conta sulla quota Drive di chi le carica.
+
 
 
 
