@@ -4,6 +4,16 @@ App web installabile su iPhone e Android: si apre dal browser e si aggiunge alla
 
 ## Cosa fa
 
+### Qualità foto e zoom della planimetria (versione 2.5)
+
+Le nuove foto usano per impostazione predefinita **4096 px sul lato lungo e JPEG al 96%**, al posto di 2048 px/JPEG 85%. Le impostazioni delle versioni precedenti passano al nuovo valore, conservando firma e preferenze dei rapporti. Dopo l'aggiornamento puoi scegliere di nuovo una risoluzione minore in Impostazioni; la scelta viene mantenuta.
+
+In **Impostazioni → Qualità delle foto archiviate** è disponibile anche **Risoluzione originale (JPEG 98%)**: mantiene le dimensioni dell'immagine ricevuta, senza ridimensionamento. Il file viene comunque ricodificato in JPEG; non è il file originale byte per byte e non vengono aggiunti dati EXIF o posizione GPS. Le foto piccole non sono ingrandite artificialmente e le foto già archiviate non cambiano. I file più dettagliati occupano più spazio e richiedono più tempo per il caricamento.
+
+La fotocamera continua richiede una risoluzione elevata, fino a un obiettivo di 4096×3072 pixel, compatibilmente con browser e fotocamera. Lo scatto intermedio è senza perdita per evitare due compressioni JPEG. La risoluzione effettiva può essere inferiore a quella richiesta e non coincide necessariamente con la risoluzione massima della normale app Fotocamera del telefono.
+
+**Zoom solo sulla pianta:** usa due dita all'interno del riquadro o i pulsanti +/−. Trascina un dito per spostare la pianta ingrandita; «Adatta» torna al 100%. Il resto dell'app non viene ingrandito dal gesto sulla planimetria. I gesti di zoom del browser fuori dal riquadro restano disponibili. Un trascinamento o un pizzico non deve aggiungere un punto; un tocco semplice imposta il punto normalmente.
+
 ### Scatto libero e verifica delle note (versione 2.4)
 
 Il punto sulla planimetria è facoltativo per scatto singolo, importazione dalla galleria e fotocamera continua. L'app parte in modalità senza punto, salvo una planimetria scelta in precedenza. Anche con una planimetria aperta si può scattare subito senza toccarla: in questo caso la foto non riceve né planimetria né coordinate. Per associare un punto basta toccare la pianta; «Scatta senza punto» rimuove il punto corrente.
@@ -159,6 +169,6 @@ Ricarica il file su GitHub. Finché `CLIENT_ID` e `ROOT_FOLDER_ID` sono vuoti, l
 - **Ricerca**: con la lente nella schermata Cantieri cerchi in tutto l'archivio: nome, indirizzo e committente del cantiere, titolo e descrizione dei gruppi, note delle foto, nomi delle planimetrie e date (es. 18/10/2026). Più parole restringono la ricerca. Senza rete cerca nei dati già salvati sul telefono.
 - **Copia sul telefono**: l'app tiene una copia delle foto per lavorare senza rete. In *Impostazioni → Libera spazio* si cancella la copia locale, mentre le foto restano su Drive. Dal menu di un gruppo, *Salva le foto sul telefono* le mette nella Galleria o in Foto.
 - **Eliminazioni**: le cartelle e le foto eliminate finiscono nel cestino di Google Drive. Se Drive non permette a un collaboratore di eliminare un file caricato da altri, l'app lo segnala nella coda e l'operazione si può annullare.
-- **Qualità delle foto**: lo standard è 2048 px sul lato lungo, modificabile in *Impostazioni*. L'app ricomprime le foto per risparmiare spazio su Drive e velocizzare i caricamenti.
+- **Qualità delle foto**: lo standard è 4096 px sul lato lungo con JPEG al 96%, modificabile in *Impostazioni*. L'opzione Risoluzione originale mantiene le dimensioni ricevute, con ricodifica JPEG al 98%.
 - **Costi**: GitHub Pages, Google Cloud (per questo uso) e lo spazio Drive del piano gratuito non hanno costi. Lo spazio occupato dalle foto conta sulla quota Drive di chi le carica.
 

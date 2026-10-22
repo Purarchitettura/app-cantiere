@@ -167,14 +167,15 @@ img { max-width: 100%; }
 .sync.compact .dot { width: 10px; height: 10px; }
 
 /* Planimetria */
-.plan { position: relative; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
-.plan-scroll { overflow: auto; height: var(--plan-h, 50vh); -webkit-overflow-scrolling: touch; display: grid; }
+.plan { position: relative; min-width: 0; max-width: 100%; box-sizing: border-box; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.plan-scroll { overflow: auto; min-width: 0; width: 100%; height: var(--plan-h, 50vh); box-sizing: border-box; touch-action: none; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; display: grid; grid-template-columns: minmax(0, 1fr); }
 .plan-stage { position: relative; margin: auto; line-height: 0; }
 .plan-stage img { width: 100%; display: block; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; background: #fff; }
 .plan-pins { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 .plan-pins .hit { pointer-events: auto; cursor: pointer; }
 .plan-tools { position: absolute; right: 8px; bottom: 8px; display: grid; gap: 6px; }
-.plan-tools button { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 20px; font-weight: 600; cursor: pointer; display: grid; place-items: center; }
+.plan-tools button { width: 40px; height: 40px; touch-action: manipulation; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 20px; font-weight: 600; cursor: pointer; display: grid; place-items: center; }
+.plan-zoom-label { padding: 3px; border-radius: 4px; background: var(--surface); font-size: 11px; text-align: center; }
 .plan-tools button svg { width: 18px; height: 18px; }
 .plan-msg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 14px; padding: 20px; text-align: center; }
 .hint { font-size: 13.5px; color: var(--muted); display: flex; gap: 8px; align-items: flex-start; }
@@ -297,7 +298,7 @@ const CONFIG = {
   CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
 };
 const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
-const APP_VERSION = '2.4 scatto libero e verifica note · 20/10/2026';
+const APP_VERSION = '2.5 foto alta qualità e zoom planimetria · 22/10/2026';
 
 /* =====================================================================
    REGOLE PER GLI AGGIORNAMENTI (da rispettare in ogni modifica futura)
@@ -472,9 +473,20 @@ function loadScript(src) {
 }
 
 /* ---------- impostazioni locali ---------- */
+const PhotoQuality = {
+  version: 2,
+  upgrade(saved = {}) {
+    return saved.photoQualityVersion === this.version ? saved : { ...saved, latoMax: 4096, qualita: 0.96, photoQualityVersion: this.version };
+  },
+  jpegQuality(side) { return +side === 0 ? 0.98 : +side >= 4096 ? 0.96 : +side >= 3200 ? 0.95 : 0.92; },
+  cameraConstraints(settings) {
+    const width = Math.min(4096, +settings.latoMax || 4096);
+    return { video: { facingMode: { ideal: 'environment' }, width: { ideal: width }, height: { ideal: Math.round(width * 0.75) } }, audio: false };
+  },
+};
 const Settings = {
-  def: { firma: '', latoMax: 2048, qualita: 0.85, perPage: 4 },
-  get() { try { return { ...this.def, ...JSON.parse(localStorage.getItem('fc_settings') || '{}') }; } catch { return { ...this.def }; } },
+  def: { firma: '', latoMax: 4096, qualita: 0.96, perPage: 4, photoQualityVersion: 2 },
+  get() { try { return { ...this.def, ...PhotoQuality.upgrade(JSON.parse(localStorage.getItem('fc_settings') || '{}')) }; } catch { return { ...this.def }; } },
   set(patch) { const v = { ...this.get(), ...patch }; try { localStorage.setItem('fc_settings', JSON.stringify(v)); } catch {} return v; },
   lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } },
   lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} },
@@ -539,10 +551,15 @@ const imgSize = im => ({ w: im.naturalWidth || im.width, h: im.naturalHeight || 
 function canvasToBlob(c, type = 'image/jpeg', q = 0.85) { return new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('Conversione immagine non riuscita')), type, q)); }
 async function resizeToJpeg(blob, maxSide, q = 0.85) {
   const im = await decodeImage(blob); const { w, h: hh } = imgSize(im);
-  const s = Math.min(1, maxSide / Math.max(w, hh)); const cw = Math.max(1, Math.round(w * s)), ch = Math.max(1, Math.round(hh * s));
+  const { w: cw, h: ch } = imageExportSize(w, hh, maxSide);
   const c = document.createElement('canvas'); c.width = cw; c.height = ch;
   const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, cw, ch); x.drawImage(im, 0, 0, cw, ch); if (im.close) im.close();
   return { blob: await canvasToBlob(c, 'image/jpeg', q), w: cw, h: ch };
+}
+function imageExportSize(w, h, maxSide) {
+  const limit = +maxSide > 0 ? +maxSide : Infinity;
+  const scale = Math.min(1, limit / Math.max(w, h));
+  return { w: Math.max(1, Math.round(w * scale)), h: Math.max(1, Math.round(h * scale)) };
 }
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -1641,21 +1658,30 @@ function PlanView({ pianta, points = [], interactive = false, onTap, onPointTap,
   const img = h('img', { alt: 'Planimetria', draggable: 'false' });
   const svg = sv('svg', { class: 'plan-pins', preserveAspectRatio: 'none' });
   const stage = h('div', { class: 'plan-stage' }, img, svg);
-  const scroller = h('div', { class: 'plan-scroll' }, stage);
+  const scroller = h('div', { class: 'plan-scroll', 'aria-label': 'Planimetria: zoom e spostamento indipendenti', role: 'group' }, stage);
   const msg = h('div', { class: 'plan-msg' }, 'Caricamento planimetria…');
   const zbtn = (lbl, label, fn) => h('button', { type: 'button', 'aria-label': label, onclick: fn }, lbl);
-  const tools = h('div', { class: 'plan-tools' }, zbtn('+', 'Ingrandisci', () => setZoom(zoom * 1.5)), zbtn('−', 'Riduci', () => setZoom(zoom / 1.5)), zbtn(icon('fit'), 'Adatta', () => setZoom(1)));
+  const zoomLabel = h('span', { class: 'plan-zoom-label', 'aria-live': 'polite' }, '100%');
+  const tools = h('div', { class: 'plan-tools' }, zbtn('+', 'Ingrandisci', () => setZoom(zoom * 1.5)), zbtn('−', 'Riduci', () => setZoom(zoom / 1.5)), zbtn(icon('fit'), 'Adatta', () => setZoom(1)), zoomLabel);
   const root = h('div', { class: 'plan', style: `--plan-h:${height}` }, scroller, msg, tools);
   let zoom = 1, natW = 0, natH = 0, pts = points;
   const baseW = () => { const bw = scroller.clientWidth, bh = scroller.clientHeight; return natW ? Math.min(bw, bh * natW / natH) : bw; };
-  function setZoom(z, cx, cy) {
+  function imageAnchor(cx, cy) {
+    const r = stage.getBoundingClientRect();
+    return { x: (cx - r.left) / Math.max(1, r.width), y: (cy - r.top) / Math.max(1, r.height) };
+  }
+  function setZoom(z, cx, cy, fixedAnchor) {
     if (!natW) return;
-    const old = zoom; zoom = Math.max(1, Math.min(10, z));
     const r = scroller.getBoundingClientRect();
-    const px = (cx ?? r.left + r.width / 2) - r.left, py = (cy ?? r.top + r.height / 2) - r.top;
-    const sx = (scroller.scrollLeft + px) / old, sy2 = (scroller.scrollTop + py) / old;
+    cx = cx ?? r.left + r.width / 2; cy = cy ?? r.top + r.height / 2;
+    const anchor = fixedAnchor || imageAnchor(cx, cy);
+    zoom = Math.max(1, Math.min(10, z));
     stage.style.width = baseW() * zoom + 'px';
-    scroller.scrollLeft = sx * zoom - px; scroller.scrollTop = sy2 * zoom - py;
+    const next = stage.getBoundingClientRect();
+    scroller.scrollLeft += next.left + anchor.x * next.width - cx;
+    scroller.scrollTop += next.top + anchor.y * next.height - cy;
+    zoomLabel.textContent = Math.round(zoom * 100) + '%';
+    root.dataset.zoom = String(zoom);
     draw();
   }
   function draw() {
@@ -1701,16 +1727,55 @@ function PlanView({ pianta, points = [], interactive = false, onTap, onPointTap,
     img.addEventListener('click', e => { const r = img.getBoundingClientRect(); onTap?.(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)), natW, natH); });
     img.style.cursor = 'crosshair';
   }
-  // zoom con due dita
-  let pinch = null;
+  // Gesti confinati alla pianta: il browser non deve ingrandire la pagina.
+  let pinch = null, pan = null, safariPinch = null, suppressClick = false;
   const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
-  scroller.addEventListener('touchstart', e => { if (e.touches.length === 2) pinch = { d: dist(e.touches), z: zoom }; }, { passive: true });
-  scroller.addEventListener('touchmove', e => {
-    if (e.touches.length === 2 && pinch) { e.preventDefault(); const t = e.touches; setZoom(pinch.z * dist(t) / pinch.d, (t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2); }
+  const center = t => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+  const consume = e => { if (e.cancelable) e.preventDefault(); e.stopPropagation(); };
+  function beginPinch(touches) {
+    const c = center(touches);
+    pinch = { d: Math.max(1, dist(touches)), z: zoom, anchor: imageAnchor(c.x, c.y) };
+    pan = null; suppressClick = true;
+  }
+  function beginPan(t) { pan = { x: t.clientX, y: t.clientY, left: scroller.scrollLeft, top: scroller.scrollTop }; }
+  scroller.addEventListener('touchstart', e => {
+    if (e.touches.length >= 2) { consume(e); beginPinch(e.touches); }
+    else if (e.touches.length === 1) { suppressClick = false; beginPan(e.touches[0]); }
   }, { passive: false });
-  scroller.addEventListener('touchend', e => { if (e.touches.length < 2) pinch = null; });
-  scroller.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); setZoom(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX, e.clientY); } }, { passive: false });
-  const ro = new ResizeObserver(() => { if (natW) { stage.style.width = baseW() * zoom + 'px'; draw(); } }); ro.observe(scroller);
+  scroller.addEventListener('touchmove', e => {
+    if (e.touches.length >= 2) {
+      consume(e); if (!pinch) beginPinch(e.touches);
+      const c = center(e.touches);
+      setZoom(pinch.z * dist(e.touches) / pinch.d, c.x, c.y, pinch.anchor);
+    } else if (e.touches.length === 1 && pan) {
+      const t = e.touches[0], dx = t.clientX - pan.x, dy = t.clientY - pan.y;
+      if (Math.hypot(dx, dy) > 5 || suppressClick) {
+        consume(e); suppressClick = true;
+        scroller.scrollLeft = pan.left - dx; scroller.scrollTop = pan.top - dy;
+      }
+    }
+  }, { passive: false });
+  scroller.addEventListener('touchend', e => {
+    if (suppressClick) consume(e);
+    if (e.touches.length < 2) { pinch = null; safariPinch = null; }
+    if (e.touches.length === 1) beginPan(e.touches[0]); else pan = null;
+  }, { passive: false });
+  scroller.addEventListener('touchcancel', () => { pinch = pan = safariPinch = null; suppressClick = true; });
+  scroller.addEventListener('click', e => { if (suppressClick) { e.preventDefault(); e.stopImmediatePropagation(); suppressClick = false; } }, true);
+  scroller.addEventListener('gesturestart', e => {
+    consume(e); const r = scroller.getBoundingClientRect();
+    const x = e.clientX ?? r.left + r.width / 2, y = e.clientY ?? r.top + r.height / 2;
+    safariPinch = { z: zoom, anchor: imageAnchor(x, y), x, y }; suppressClick = true;
+  }, { passive: false });
+  scroller.addEventListener('gesturechange', e => {
+    consume(e);
+    if (!pinch && safariPinch) setZoom(safariPinch.z * e.scale, e.clientX ?? safariPinch.x, e.clientY ?? safariPinch.y, safariPinch.anchor);
+  }, { passive: false });
+  scroller.addEventListener('gestureend', e => { consume(e); safariPinch = null; }, { passive: false });
+  scroller.addEventListener('wheel', e => {
+    if (e.ctrlKey || e.metaKey) { consume(e); setZoom(zoom * Math.exp(-e.deltaY * 0.002), e.clientX, e.clientY); }
+  }, { passive: false });
+  const ro = new ResizeObserver(() => { if (natW) setZoom(zoom); }); ro.observe(scroller);
   Store.fullURL(pianta).then(u => { img.src = u; }).catch(() => { msg.textContent = 'Planimetria non disponibile senza rete. Riprova quando c\'è connessione.'; });
   return { el: root, setPoints(p) { pts = p; draw(); }, destroy() { ro.disconnect(); } };
 }
@@ -2074,7 +2139,7 @@ function ScattoView(cant, grp) {
   async function openLiveCamera() {
     if (!navigator.mediaDevices?.getUserMedia) { await take(true); return; }
     let stream;
-    try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); }
+    try { stream = await navigator.mediaDevices.getUserMedia(PhotoQuality.cameraConstraints(Settings.get())); }
     catch { toast('Fotocamera interna non disponibile: uso la fotocamera del telefono'); await take(true); return; }
     const video = h('video', { autoplay: true, playsinline: true, muted: true, style: 'width:100%;max-height:65vh;background:#111;border-radius:12px' });
     video.srcObject = stream;
@@ -2090,9 +2155,10 @@ function ScattoView(cant, grp) {
       try {
         const c = document.createElement('canvas'); c.width = video.videoWidth; c.height = video.videoHeight;
         c.getContext('2d').drawImage(video, 0, 0);
-        const b = await canvasToBlob(c, 'image/jpeg', .9);
+        // Un solo passaggio JPEG nel salvataggio finale: lo scatto intermedio è senza perdita.
+        const b = await canvasToBlob(c, 'image/png');
         const before = shots.length;
-        await saveFiles([new File([b], 'scatto-' + Date.now() + '.jpg', { type: 'image/jpeg' })], true);
+        await saveFiles([new File([b], 'scatto-' + Date.now() + '.png', { type: 'image/png' })], true);
         if (shots.length > before) count.textContent = shots.length + ' foto salvate sul dispositivo · puoi continuare';
         else count.textContent = 'Salvataggio non riuscito: verifica lo spazio e riprova';
       } catch (e) {
@@ -2285,8 +2351,8 @@ async function migratePhotoDescriptions() {
 function SettingsView() {
   const st = Settings.get();
   const firma = h('input', { id: 'st-firma', value: st.firma, placeholder: MODE === 'drive' ? (Auth.user?.name || '') : CONFIG.INTESTAZIONE_DEFAULT });
-  const lato = h('select', { id: 'st-lato' }, [[1600, 'Leggera (1600 px)'], [2048, 'Standard (2048 px)'], [2560, 'Alta (2560 px)'], [3200, 'Massima (3200 px)']].map(([v, l]) => h('option', { value: v, selected: +st.latoMax === v || null }, l)));
-  const save = () => { Settings.set({ firma: firma.value.trim(), latoMax: +lato.value }); toast('Impostazioni salvate'); };
+  const lato = h('select', { id: 'st-lato' }, [[1600, 'Leggera (1600 px)'], [2048, 'Standard (2048 px)'], [2560, 'Alta (2560 px)'], [3200, 'Molto alta (3200 px)'], [4096, 'Massima (4096 px, JPEG 96%)'], [0, 'Risoluzione originale (JPEG 98%)']].map(([v, l]) => h('option', { value: v, selected: +st.latoMax === v || null }, l)));
+  const save = () => { Settings.set({ firma: firma.value.trim(), latoMax: +lato.value, qualita: PhotoQuality.jpegQuality(+lato.value), photoQualityVersion: PhotoQuality.version }); toast('Impostazioni salvate'); };
   firma.addEventListener('change', save); lato.addEventListener('change', save);
   const queue = h('div', { class: 'card' });
   const offl = h('input', { id: 'st-off', type: 'checkbox', checked: Store.forceOffline || null, onchange: e => { Store.forceOffline = e.target.checked; if (!e.target.checked) { Store.status.net = 'ok'; Store.kick(); } else Store.noteNet({ offline: true }); Store.emit(); } });
