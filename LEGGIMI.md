@@ -4,6 +4,16 @@ App web installabile su iPhone e Android: si apre dal browser e si aggiunge alla
 
 ## Cosa fa
 
+### Foto ad alta qualità e copia Drive entro 1,5 MB (versione 2.9)
+
+Per le nuove foto scattate o importate, l'app mantiene le dimensioni dell'immagine ricevuta e salva una versione JPEG al 100% sul dispositivo. La fotografia ad alta qualità viene usata per la visualizzazione a piena risoluzione e per «Salva le foto sul telefono», senza applicare il limite Drive. JPEG 100% non significa RAW o file identico a quello della fotocamera: il browser ricodifica l'immagine. La risoluzione ricevuta continua a dipendere dal telefono e dal browser.
+
+Solo il file da caricare su Drive viene ridotto entro **1.500.000 byte** (1,5 MB decimali). Se il JPEG è già sotto soglia viene inviato senza un'ulteriore ricodifica. Altrimenti l'app ricodifica la copia con qualità progressiva e, se necessario, riduce le dimensioni; ogni tentativo parte dalla foto ad alta qualità. Viene controllata la dimensione effettiva del Blob, con un secondo blocco nell'API di caricamento. Una copia troppo grande non viene inviata. In caso di errore la foto originale resta nella coda locale e il caricamento è riprovabile.
+
+Dopo il caricamento, la foto ad alta qualità resta nell'archivio locale dell'app ed è separata dalla cache delle copie Drive. «Libera copie scaricate» elimina solo copie riscaricabili e miniature, conservando originali e foto non ancora sincronizzate. Gli originali sono distinti per account. Una cancellazione esplicita della foto nell'app elimina anche il suo originale locale dopo l'esito positivo dell'eliminazione su Drive.
+
+**Disponibilità:** l'alta qualità è disponibile sul dispositivo/browser che ha scattato. Gli altri dispositivi ricevono la sola copia Drive compressa. L'esportazione usa gli originali locali quando presenti, altrimenti la copia Drive. Non è un salvataggio automatico nella galleria del telefono: per una copia fuori dall'app usare «Salva le foto sul telefono». Cancellare i dati del browser o rimuovere l'archivio dell'app può eliminare gli originali; il browser resta responsabile della persistenza dello spazio locale. Le foto già presenti su Drive non vengono modificate o ricompresse da questo aggiornamento.
+
 ### Navigazione del telefono e gesto laterale (versione 2.8)
 
 Il tasto **Indietro del telefono**, il pulsante del browser e la freccia nell'app usano la stessa cronologia delle schermate. Dalle foto si torna al gruppo e poi al cantiere; da una finestra aperta si chiude prima la finestra. La fotocamera continua viene chiusa e lo stream viene fermato quando si torna indietro. Il comando Avanti del browser riapre le schermate visitate, ma non ripristina finestre già chiuse o anteprime della fotocamera. Dalla schermata iniziale il pulsante Indietro del browser conserva il normale comportamento di uscita dalla pagina.
@@ -187,8 +197,9 @@ Ricarica il file su GitHub. Finché `CLIENT_ID` e `ROOT_FOLDER_ID` sono vuoti, l
 - **Ricerca**: con la lente nella schermata Cantieri cerchi in tutto l'archivio: nome, indirizzo e committente del cantiere, titolo e descrizione dei gruppi, note delle foto, nomi delle planimetrie e date (es. 18/10/2026). Più parole restringono la ricerca. Senza rete cerca nei dati già salvati sul telefono.
 - **Copia sul telefono**: l'app tiene una copia delle foto per lavorare senza rete. In *Impostazioni → Libera spazio* si cancella la copia locale, mentre le foto restano su Drive. Dal menu di un gruppo, *Salva le foto sul telefono* le mette nella Galleria o in Foto.
 - **Eliminazioni**: le cartelle e le foto eliminate finiscono nel cestino di Google Drive. Se Drive non permette a un collaboratore di eliminare un file caricato da altri, l'app lo segnala nella coda e l'operazione si può annullare.
-- **Qualità delle foto**: lo standard mantiene la risoluzione originale ricevuta, con ricodifica JPEG al 100%, modificabile in *Impostazioni*. Lo zoom digitale ritaglia i pixel disponibili senza ingrandirli artificialmente.
+- **Qualità delle foto**: sul dispositivo si mantiene la risoluzione ricevuta con JPEG al 100%; la sola copia Drive viene compressa entro 1,5 MB. Lo zoom digitale ritaglia i pixel disponibili senza ingrandirli artificialmente.
 - **Costi**: GitHub Pages, Google Cloud (per questo uso) e lo spazio Drive del piano gratuito non hanno costi. Lo spazio occupato dalle foto conta sulla quota Drive di chi le carica.
+
 
 
 

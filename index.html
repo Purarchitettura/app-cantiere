@@ -298,7 +298,7 @@ const CONFIG = {
   CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
 };
 const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
-const APP_VERSION = '2.8 navigazione telefono e gesto laterale · 22/10/2026';
+const APP_VERSION = '2.9 originali locali e Drive entro 1,5 MB · 22/10/2026';
 
 /* =====================================================================
    REGOLE PER GLI AGGIORNAMENTI (da rispettare in ogni modifica futura)
@@ -524,7 +524,7 @@ const CameraPhoto = {
 
 /* ---------- impostazioni locali ---------- */
 const PhotoQuality = {
-  version: 3,
+  version: 4,
   upgrade(saved = {}) {
     return saved.photoQualityVersion === this.version ? saved : { ...saved, latoMax: 0, qualita: 1, photoQualityVersion: this.version };
   },
@@ -535,7 +535,7 @@ const PhotoQuality = {
   },
 };
 const Settings = {
-  def: { firma: '', latoMax: 0, qualita: 1, perPage: 4, photoQualityVersion: 3 },
+  def: { firma: '', latoMax: 0, qualita: 1, perPage: 4, photoQualityVersion: 4 },
   get() { try { return { ...this.def, ...PhotoQuality.upgrade(JSON.parse(localStorage.getItem('fc_settings') || '{}')) }; } catch { return { ...this.def }; } },
   set(patch) { const v = { ...this.get(), ...patch }; try { localStorage.setItem('fc_settings', JSON.stringify(v)); } catch {} return v; },
   lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -770,6 +770,7 @@ const Drive = {
   },
   async create(kind, parentId, data, blob) {
     if (kind === 'cantiere') Access.requireCantiereCreator();
+    if (kind === 'foto' && blob && blob.size > DrivePhoto.MAX_BYTES) throw new Error('Copia Drive oltre il limite di 1,5 MB: caricamento bloccato');
     const meta = { name: this.nameFor(kind, data), parents: [parentId], ...(kind === 'foto' ? PhotoDescription.encode(data) : { description: JSON.stringify(data), appProperties: { fc: kind } }) };
     const fields = '&fields=' + encodeURIComponent(this.FIELDS);
     let r;
@@ -801,6 +802,31 @@ const Drive = {
     catch (e) { if (e.status === 403 || e.status === 404) return null; throw e; }
   },
   async rootInfo() { return this.folderInfo(CONFIG.ROOT_FOLDER_ID); },
+};
+
+/* La copia Drive è distinta dall'originale conservato nell'archivio locale. */
+const DrivePhoto = {
+  MAX_BYTES: 1500000,
+  async prepare(original) {
+    if (original.size <= this.MAX_BYTES) return original;
+    const image = await decodeImage(original);
+    try {
+      const size = imgSize(image), scale = Math.min(1, 4096 / Math.max(size.w, size.h));
+      let w = Math.max(1, Math.round(size.w * scale)), height = Math.max(1, Math.round(size.h * scale));
+      const canvas = document.createElement('canvas');
+      for (let pass = 0; pass < 16; pass++) {
+        canvas.width = w; canvas.height = height;
+        const ctx = canvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, height); ctx.drawImage(image, 0, 0, w, height);
+        for (const quality of [0.94, 0.88, 0.82, 0.76]) {
+          const candidate = await canvasToBlob(canvas, 'image/jpeg', quality);
+          if (candidate.size <= this.MAX_BYTES) return candidate;
+        }
+        if (w === 1 && height === 1) break;
+        w = Math.max(1, Math.floor(w * 0.8)); height = Math.max(1, Math.floor(height * 0.8));
+      }
+      throw new Error('Impossibile creare la copia Drive entro 1,5 MB. L’originale resta sul dispositivo.');
+    } finally { image.close?.(); }
+  },
 };
 
 /* ---------- archivio di prova (tutto sul dispositivo) ---------- */
@@ -898,8 +924,8 @@ const Store = {
       if (!await IDB.durable()) throw new Error('Archivio offline non disponibile: impossibile garantire il salvataggio della foto.');
       if (navigator.storage?.estimate) {
         const space = await navigator.storage.estimate();
-        if (space.quota && space.usage != null && space.quota - space.usage < blob.size * 1.3)
-          throw new Error('Spazio sul dispositivo insufficiente. Sincronizza le foto o libera memoria.');
+        if (space.quota && space.usage != null && space.quota - space.usage < blob.size * 2.2 + DrivePhoto.MAX_BYTES)
+          throw new Error('Spazio sul dispositivo insufficiente per conservare la foto ad alta qualità. Libera memoria sul telefono.');
       }
     }
     if (blob && navigator.storage?.persist) {
@@ -919,11 +945,13 @@ const Store = {
   async remove(ent) {
     const cop = this.isTemp(this.resolve(ent.id)) ? await this.findCreateOp(ent.id) : null;
     if (cop) { await IDB.del('queue', cop.key); await IDB.del('blobs', 'q:' + cop.tempId); await this.refreshStatus(); this.emit(); }
-    else await this.enqueue({ type: 'remove', kind: ent.kind, id: ent.id });
+    else await this.enqueue({ type: 'remove', kind: ent.kind, id: ent.id, originalKey: ent.kind === 'foto' ? this.originalKey(ent) : null });
   },
 
+  originalKey(ent) { return 'h:' + (MODE === 'drive' ? Access.email() : 'demo') + ':' + (ent.data?.photoUid || this.resolve(ent.id)); },
   async getBlob(ent) {
     const id = ent.id, r = this.resolve(id);
+    if (ent.kind === 'foto') { const original = await IDB.get('blobs', this.originalKey(ent)); if (original) return original; }
     for (const k of ['q:' + id, 'c:' + r]) { const b = await IDB.get('blobs', k); if (b) return b; }
     const b = await this.limit(() => this.net(() => this.backend.getBlob(r)));
     IDB.put('blobs', 'c:' + r, b).catch(() => {});
@@ -943,9 +971,10 @@ const Store = {
     const u = URL.createObjectURL(t); this.urls.set(key, u); return u;
   },
   async fullURL(ent) {
-    const key = 'u:' + this.resolve(ent.id);
+    const original = ent.kind === 'foto' ? await IDB.get('blobs', this.originalKey(ent)) : null;
+    const key = 'u:' + (original ? this.originalKey(ent) : this.resolve(ent.id));
     if (this.urls.has(key)) return this.urls.get(key);
-    const u = URL.createObjectURL(await this.getBlob(ent)); this.urls.set(key, u); return u;
+    const u = URL.createObjectURL(original || await this.getBlob(ent)); this.urls.set(key, u); return u;
   },
   async putThumb(ent, blob) { const t = (await resizeToJpeg(blob, 420, 0.78)).blob; await IDB.put('blobs', 't:' + ent.id, t); },
 
@@ -988,6 +1017,7 @@ const Store = {
       if (this.isTemp(parent)) { await IDB.del('blobs', 'q:' + op.tempId); return; } // genitore eliminato prima del caricamento
       let blob = null;
       if (op.hasBlob) { blob = await IDB.get('blobs', 'q:' + op.tempId); if (!blob) throw new Error('Il file da caricare non è più sul telefono'); }
+      const original = blob;
       // Retry idempotente: se l'upload ha avuto successo ma la risposta si è persa,
       // cerca prima la fotografia per identificativo immutabile.
       let ent = null;
@@ -995,10 +1025,18 @@ const Store = {
         const existing = await B.list('foto', parent);
         ent = existing.find(f => f.data.photoUid === op.data.photoUid) || null;
       }
-      if (!ent) ent = await B.create(op.kind, parent, this.resolveRefs(op.data), blob);
+      if (!ent) {
+        if (op.kind === 'foto' && blob && MODE === 'drive') blob = await DrivePhoto.prepare(original);
+        if (op.kind === 'foto' && blob && MODE === 'drive' && blob.size > DrivePhoto.MAX_BYTES) throw new Error('Copia Drive oltre 1,5 MB: caricamento bloccato');
+        ent = await B.create(op.kind, parent, this.resolveRefs(op.data), blob);
+      }
       if (op.kind === 'cantiere') Access.siteIds?.add(ent.id);
+      if (op.kind === 'foto' && original && MODE === 'drive') await IDB.put('blobs', this.originalKey(ent), original);
       this.idmap[op.tempId] = ent.id; await IDB.put('kv', 'idmap', this.idmap);
-      if (blob) { await IDB.put('blobs', 'c:' + ent.id, blob); await IDB.del('blobs', 'q:' + op.tempId); }
+      if (blob) {
+        if (op.kind !== 'foto' || MODE !== 'drive' || blob.size <= DrivePhoto.MAX_BYTES) await IDB.put('blobs', 'c:' + ent.id, blob);
+        await IDB.del('blobs', 'q:' + op.tempId);
+      }
       const t = await IDB.get('blobs', 't:' + op.tempId);
       if (t) { await IDB.put('blobs', 't:' + ent.id, t); await IDB.del('blobs', 't:' + op.tempId); }
       const ck = `list:${op.kind}:${parent}`; const cl = (await IDB.get('kv', ck)) || [];
@@ -1013,6 +1051,7 @@ const Store = {
       try { await B.remove(op.kind, id); }
       catch (e) { if (e.status === 403) throw new Error('Google Drive non permette di eliminare questo elemento: in una cartella condivisa può eliminarlo solo chi lo ha caricato o il proprietario della cartella.'); throw e; }
       await this.patchCache(op.kind, id, list => list.filter(i => i.id !== id));
+      if (op.originalKey) await IDB.del('blobs', op.originalKey);
     }
   },
   async patchCache(kind, id, fn) {
@@ -2209,7 +2248,7 @@ function GruppoView(cant, grp) {
       try { for (const f of fotos) { files.push(new File([await Store.getBlob(f)], `${slug(grp.data.titolo)}_${String(f.n).padStart(3, '0')}_${String(f.data.photoUid || f.id).slice(-8)}.jpg`, { type: 'image/jpeg' })); b.set(`Foto ${files.length} di ${fotos.length}`, files.length / fotos.length); } }
       catch (e) { b.close(); return toast('Alcune foto non sono disponibili senza rete', 'err'); }
       b.close();
-      await modal({ title: `${files.length} foto pronte`, body: h('p', { class: 'modal-text' }, 'Scegli «Salva immagini» (iPhone) o la Galleria / File (Android).'), actions: [{ label: 'Annulla', value: null }, { label: 'Salva sul telefono', kind: 'primary', icon: 'download', onClick: () => { navigator.share({ files }).catch(() => {}); } }] });
+      await modal({ title: `${files.length} foto pronte`, body: h('p', { class: 'modal-text' }, 'Vengono usati gli originali presenti su questo telefono; per le altre foto si usa la copia Drive. Scegli «Salva immagini» (iPhone) o la Galleria / File (Android).'), actions: [{ label: 'Annulla', value: null }, { label: 'Salva sul telefono', kind: 'primary', icon: 'download', onClick: () => { navigator.share({ files }).catch(() => {}); } }] });
     }
     if (a === 'edit') {
       const t = h('input', { id: 'ge-t', maxlength: 150, value: grp.data.titolo }), d = h('input', { id: 'ge-d', type: 'date', value: grp.data.data || '' }), ds = h('textarea', { id: 'ge-ds', maxlength: 2000 }); ds.value = grp.data.descrizione || '';
@@ -2249,6 +2288,7 @@ function ScattoView(cant, grp) {
     AppBar({ title: 'Scatta foto', sub: grp.data.titolo }),
     h('main', { class: 'main gut' }, chips, planBox, hint, h('div', { class: 'btn-row' }, dirBtn, clrBtn, newBtn),
       field('Nota per le prossime foto (facoltativa)', nota, 'Resta valida finché non la cambi; ogni foto si può correggere dopo.'),
+      h('p', { class: 'hint' }, 'Foto ad alta qualità su questo telefono; copia Drive entro 1,5 MB.'),
       h('div', { class: 'btn-row' }, liveBtn), stripLbl, strip),
     actionBar(galBtn, camBtn));
   function paint() {
@@ -2294,7 +2334,7 @@ function ScattoView(cant, grp) {
       let num = await numP;
       for (let i = 0; i < files.length; i++) {
         b?.set(`Foto ${i + 1} di ${files.length}`, (i + 1) / files.length);
-        const r = await resizeToJpeg(files[i], st.latoMax, st.qualita);
+        const r = await resizeToJpeg(files[i], 0, 1);
         const taken = new Date(camera ? Date.now() : (files[i].lastModified || Date.now())).toISOString();
         const stableId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : uid();
         const data = { photoUid: stableId, num: num++, taken, ...location, nota: nota.value.trim(), autore: st.firma || (MODE === 'drive' ? Auth.user?.name || Auth.user?.email || '' : CONFIG.INTESTAZIONE_DEFAULT) };
@@ -2586,9 +2626,8 @@ async function migratePhotoDescriptions() {
 function SettingsView() {
   const st = Settings.get();
   const firma = h('input', { id: 'st-firma', value: st.firma, placeholder: MODE === 'drive' ? (Auth.user?.name || '') : CONFIG.INTESTAZIONE_DEFAULT });
-  const lato = h('select', { id: 'st-lato' }, [[1600, 'Leggera (1600 px)'], [2048, 'Standard (2048 px)'], [2560, 'Alta (2560 px)'], [3200, 'Molto alta (3200 px)'], [4096, 'Massima (4096 px, JPEG 96%)'], [0, 'Risoluzione originale (JPEG 100%)']].map(([v, l]) => h('option', { value: v, selected: +st.latoMax === v || null }, l)));
-  const save = () => { Settings.set({ firma: firma.value.trim(), latoMax: +lato.value, qualita: PhotoQuality.jpegQuality(+lato.value), photoQualityVersion: PhotoQuality.version }); toast('Impostazioni salvate'); };
-  firma.addEventListener('change', save); lato.addEventListener('change', save);
+  const save = () => { Settings.set({ firma: firma.value.trim(), latoMax: 0, qualita: 1, photoQualityVersion: PhotoQuality.version }); toast('Impostazioni salvate'); };
+  firma.addEventListener('change', save);
   const queue = h('div', { class: 'card' });
   const offl = h('input', { id: 'st-off', type: 'checkbox', checked: Store.forceOffline || null, onchange: e => { Store.forceOffline = e.target.checked; if (!e.target.checked) { Store.status.net = 'ok'; Store.kick(); } else Store.noteNet({ offline: true }); Store.emit(); } });
   const acct = MODE === 'drive' ? h('div', { class: 'card info-grid' }, h('dt', null, 'Account'), h('dd', null, Auth.user?.email || '—'), h('dt', null, 'Archivio'), h('dd', null, 'Google Drive'), h('dt', null, 'Accesso'), h('dd', null, Auth.valid() ? 'attivo' : 'scaduto: serve un nuovo accesso per caricare')) : null;
@@ -2596,7 +2635,9 @@ function SettingsView() {
     h('main', { class: 'main gut no-bar' },
       h('div', { class: 'section-label' }, 'Caricamenti'), queue,
       h('div', { class: 'section-label' }, 'Foto e rapporti'),
-      h('div', { class: 'card form', style: 'padding:14px' }, field('Firma / autore delle foto', firma, 'Compare sulle foto e nel campo «Redatto da» del rapporto'), field('Qualità delle foto archiviate', lato, 'Più alta = più dettaglio ma caricamenti più lenti')),
+      h('div', { class: 'card form', style: 'padding:14px' }, field('Firma / autore delle foto', firma, 'Compare sulle foto e nel campo «Redatto da» del rapporto'),
+        h('div', null, h('strong', null, 'Foto su questo dispositivo: alta qualità'), h('p', { class: 'modal-text' }, 'Risoluzione originale ricevuta, JPEG 100%. Visualizzazione e salvataggio sul telefono usano l’originale quando presente.')),
+        h('div', null, h('strong', null, 'Copia Google Drive: massimo 1,5 MB'), h('p', { class: 'modal-text' }, 'Compressione automatica della sola copia da caricare. Su altri dispositivi si scarica questa copia; gli originali restano sul telefono che ha scattato.'))),
       MODE === 'drive' && Access.isCreator() ? h('div', { class: 'card', style: 'padding:14px;display:grid;gap:10px' },
         h('p', { class: 'modal-text' }, 'Le note delle foto sono visibili nella Descrizione del file su Google Drive. Puoi aggiornare anche le foto precedenti: immagini e nomi non cambiano.'),
         h('button', { class: 'btn', type: 'button', onclick: migratePhotoDescriptions }, 'Aggiorna descrizioni foto su Drive')) : null,
@@ -2604,8 +2645,8 @@ function SettingsView() {
         h('div', { class: 'btn-row' }, !Auth.valid() ? h('button', { class: 'btn primary', type: 'button', onclick: () => Auth.start() }, 'Accedi di nuovo') : null,
           h('button', { class: 'btn danger', type: 'button', onclick: async () => { if (Store.status.pending && !await confirmBox('Ci sono elementi non caricati', 'Se esci ora restano sul telefono e verranno caricati al prossimo accesso con lo stesso account.', 'Esci comunque', true)) return; Auth.signOut(); Nav.reset(() => LoginView()); } }, 'Esci'))] : null,
       h('div', { class: 'section-label' }, 'Spazio sul telefono'),
-      h('div', { class: 'card', style: 'padding:14px;display:grid;gap:10px' }, h('p', { class: 'modal-text' }, MODE === 'drive' ? 'L\'app tiene una copia delle foto già viste per usarle anche senza rete. Puoi liberare spazio: le foto restano su Google Drive.' : 'In modalità prova le foto esistono solo su questo dispositivo.'),
-        MODE === 'drive' ? h('button', { class: 'btn', type: 'button', onclick: async () => { await Store.clearCache(); toast('Copie locali eliminate'); } }, 'Libera spazio') : null),
+      h('div', { class: 'card', style: 'padding:14px;display:grid;gap:10px' }, h('p', { class: 'modal-text' }, MODE === 'drive' ? 'Puoi eliminare le copie scaricate e le miniature: gli originali ad alta qualità scattati su questo telefono vengono conservati. Salvali nella galleria per conservarli anche fuori dall’app; cancellare i dati del browser rimuove anche gli originali.' : 'In modalità prova le foto esistono solo su questo dispositivo.'),
+        MODE === 'drive' ? h('button', { class: 'btn', type: 'button', onclick: async () => { await Store.clearCache(); toast('Copie scaricate e miniature eliminate; originali conservati'); } }, 'Libera copie scaricate') : null),
       MODE === 'demo' ? [h('div', { class: 'section-label' }, 'Modalità prova'),
         h('div', { class: 'card', style: 'padding:14px;display:grid;gap:12px' },
           h('label', { class: 'check' }, offl, 'Simula assenza di rete'),
@@ -3047,6 +3088,7 @@ boot().catch(e => { console.error(e); $('#app').replaceChildren(h('div', { class
 </script>
 </body>
 </html>
+
 
 
 
