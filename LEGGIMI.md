@@ -4,6 +4,14 @@ App web installabile su iPhone e Android: si apre dal browser e si aggiunge alla
 
 ## Cosa fa
 
+### Download dell'originale dalla singola foto (versione 2.10)
+
+Aprendo una foto è disponibile **Salva originale ad alta qualità** quando il file locale è presente sul dispositivo, anche mentre la foto è ancora in attesa di sincronizzazione. Il download e la condivisione usano gli stessi byte del file locale: non passa dalla miniatura, non ridimensiona e non ricomprime. Questo vale sia per la fotocamera continua sia per lo scatto singolo: entrambe le modalità salvano la foto ad alta qualità prima di preparare la copia Drive.
+
+Se l'originale non è disponibile sul dispositivo, il comando diventa **Salva copia Drive**, con un messaggio che segnala la qualità potenzialmente inferiore. Non viene presentata una copia compressa come originale. Il file da condividere viene preparato prima del tocco per mantenere l'apertura del pannello nativo di salvataggio; dove la condivisione file non è disponibile si usa il download del browser. Il cambio rapido della foto annulla la preparazione precedente, per non scaricare la foto sbagliata.
+
+La qualità massima qui indica la versione ricevuta e conservata dall'app: lo scatto continuo dipende dalla risoluzione accessibile tramite browser e non può garantire la stessa risoluzione del sensore o della fotocamera nativa. La copia caricata su Drive resta limitata a 1,5 MB. Le foto vecchie che erano già state ridotte non recuperano il dettaglio perso.
+
 ### Foto ad alta qualità e copia Drive entro 1,5 MB (versione 2.9)
 
 Per le nuove foto scattate o importate, l'app mantiene le dimensioni dell'immagine ricevuta e salva una versione JPEG al 100% sul dispositivo. La fotografia ad alta qualità viene usata per la visualizzazione a piena risoluzione e per «Salva le foto sul telefono», senza applicare il limite Drive. JPEG 100% non significa RAW o file identico a quello della fotocamera: il browser ricodifica l'immagine. La risoluzione ricevuta continua a dipendere dal telefono e dal browser.
@@ -199,6 +207,7 @@ Ricarica il file su GitHub. Finché `CLIENT_ID` e `ROOT_FOLDER_ID` sono vuoti, l
 - **Eliminazioni**: le cartelle e le foto eliminate finiscono nel cestino di Google Drive. Se Drive non permette a un collaboratore di eliminare un file caricato da altri, l'app lo segnala nella coda e l'operazione si può annullare.
 - **Qualità delle foto**: sul dispositivo si mantiene la risoluzione ricevuta con JPEG al 100%; la sola copia Drive viene compressa entro 1,5 MB. Lo zoom digitale ritaglia i pixel disponibili senza ingrandirli artificialmente.
 - **Costi**: GitHub Pages, Google Cloud (per questo uso) e lo spazio Drive del piano gratuito non hanno costi. Lo spazio occupato dalle foto conta sulla quota Drive di chi le carica.
+
 
 
 

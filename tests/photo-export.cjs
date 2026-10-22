@@ -1,0 +1,30 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const {Blob,File}=require('node:buffer');
+const html=fs.readFileSync(__dirname+'/../index.html','utf8');
+let tests=0;
+async function main(){
+ const db=new Map();let fetched=0,downloads=[],shared=[];
+ const pixels=Buffer.alloc(3000000);for(let i=0;i<pixels.length;i++)pixels[i]=i%251;
+ const high=new Blob([pixels],{type:'image/jpeg'}),cloud=new Blob([pixels.subarray(0,1000000)],{type:'image/jpeg'});
+ const ctx={MODE:'drive',TMP:'tmp~',File,Access:{email:()=> 'qa@example.test'},IDB:{get:async(s,k)=>db.get(s+'|'+k),put:async(s,k,v)=>db.set(s+'|'+k,v)},navigator:{},saveOrShare:async(file,name)=>downloads.push({file,name}),URL:{createObjectURL:blob=>'blob:'+blob.size},console};
+ const source=html.slice(html.indexOf('const Store = {'),html.indexOf('/* ---------- foto: numerazione'));
+ vm.createContext(ctx);vm.runInContext(source+'\nthis.store=Store;this.exporter=PhotoExport;',ctx);
+ const store=ctx.store,exporter=ctx.exporter;store.backend={getBlob:async()=>{fetched++;return cloud;}};
+ const ent={id:'tmp~single',kind:'foto',data:{photoUid:'single'}};
+ db.set('blobs|q:'+ent.id,high);
+ const single=await exporter.prepare(ent,'scatto-singolo.jpg');assert.equal(single.original,true);assert.equal(single.file.size,3000000);assert.deepEqual(Buffer.from(await single.file.arrayBuffer()),pixels);assert.equal(fetched,0);tests++;
+ await exporter.save(single);assert.equal(downloads.length,1);assert.equal(downloads[0].file,single.file);assert.equal(downloads[0].name,'scatto-singolo.jpg');tests++;
+ const continuous={id:'remote-continuous',kind:'foto',data:{photoUid:'continuous'}};
+ db.set('blobs|h:qa@example.test:continuous',high);
+ const live=await exporter.prepare(continuous,'scatto-continuo.jpg');assert.equal(live.original,true);assert.equal(live.file.size,3000000);assert.deepEqual(Buffer.from(await live.file.arrayBuffer()),pixels);assert.equal(fetched,0);tests++;
+ let synchronous=false;ctx.navigator.canShare=()=>true;ctx.navigator.share=options=>{synchronous=true;shared.push(options.files[0]);return Promise.resolve();};
+ const saving=exporter.save(live);assert.equal(synchronous,true);await saving;assert.equal(shared[0],live.file);assert.deepEqual(Buffer.from(await shared[0].arrayBuffer()),pixels);tests++;
+ ctx.navigator.share=async()=>{throw Object.assign(Error('Annullato'),{name:'AbortError'});};await exporter.save(live);assert.equal(downloads.length,1);tests++;
+ const other={id:'remote-only',kind:'foto',data:{photoUid:'not-here'}};
+ const remote=await exporter.prepare(other,'copia-drive.jpg');assert.equal(remote.original,false);assert.equal(remote.file.size,1000000);assert.equal(fetched,1);tests++;
+ ctx.navigator.canShare=()=>{throw Error('unsupported');};await exporter.save(remote);assert.equal(downloads[1].file,remote.file);tests++;
+ store.backend.getBlob=async()=>{throw Error('Offline');};await assert.rejects(()=>exporter.prepare({...other,id:'not-cached'},'offline.jpg'),/Offline/);tests++;
+ assert.match(html,/Salva originale ad alta qualità/);assert.match(html,/Salva copia Drive/);assert.match(html,/seq !== exportSeq \|\| current !== f/);tests++;
+ console.log('PASS: '+tests+' verifiche esportazione byte per byte di scatto singolo e continuo, condivisione, fallback e copia Drive distinta.');
+}
+main().catch(e=>{console.error(e);process.exitCode=1;});

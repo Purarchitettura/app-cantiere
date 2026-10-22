@@ -298,7 +298,7 @@ const CONFIG = {
   CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
 };
 const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
-const APP_VERSION = '2.9 originali locali e Drive entro 1,5 MB · 22/10/2026';
+const APP_VERSION = '2.10 download originali ad alta qualità · 22/10/2026';
 
 /* =====================================================================
    REGOLE PER GLI AGGIORNAMENTI (da rispettare in ogni modifica futura)
@@ -949,9 +949,15 @@ const Store = {
   },
 
   originalKey(ent) { return 'h:' + (MODE === 'drive' ? Access.email() : 'demo') + ':' + (ent.data?.photoUid || this.resolve(ent.id)); },
+  async localOriginal(ent) {
+    if (ent.kind !== 'foto') return null;
+    const high = await IDB.get('blobs', this.originalKey(ent)); if (high) return high;
+    for (const id of new Set([ent.id, this.resolve(ent.id)])) { const pending = await IDB.get('blobs', 'q:' + id); if (pending) return pending; }
+    return MODE === 'demo' ? (await IDB.get('blobs', 'f:' + this.resolve(ent.id))) || null : null;
+  },
   async getBlob(ent) {
     const id = ent.id, r = this.resolve(id);
-    if (ent.kind === 'foto') { const original = await IDB.get('blobs', this.originalKey(ent)); if (original) return original; }
+    const original = await this.localOriginal(ent); if (original) return original;
     for (const k of ['q:' + id, 'c:' + r]) { const b = await IDB.get('blobs', k); if (b) return b; }
     const b = await this.limit(() => this.net(() => this.backend.getBlob(r)));
     IDB.put('blobs', 'c:' + r, b).catch(() => {});
@@ -971,7 +977,7 @@ const Store = {
     const u = URL.createObjectURL(t); this.urls.set(key, u); return u;
   },
   async fullURL(ent) {
-    const original = ent.kind === 'foto' ? await IDB.get('blobs', this.originalKey(ent)) : null;
+    const original = await this.localOriginal(ent);
     const key = 'u:' + (original ? this.originalKey(ent) : this.resolve(ent.id));
     if (this.urls.has(key)) return this.urls.get(key);
     const u = URL.createObjectURL(original || await this.getBlob(ent)); this.urls.set(key, u); return u;
@@ -1071,6 +1077,24 @@ const Store = {
     for (const k of await IDB.keys('blobs')) if (/^[ct]:/.test(k)) await IDB.del('blobs', k);
     for (const u of this.urls.values()) URL.revokeObjectURL(u);
     this.urls.clear();
+  },
+};
+
+/* L'esportazione riusa gli stessi byte della foto locale: nessuna nuova compressione. */
+const PhotoExport = {
+  async prepare(ent, filename) {
+    const original = await Store.localOriginal(ent);
+    const blob = original || await Store.getBlob(ent);
+    return { original: !!original, file: new File([blob], filename, { type: blob.type || 'image/jpeg' }) };
+  },
+  async save(bundle) {
+    const file = bundle.file;
+    let share = false;
+    try { share = !!navigator.share && !!navigator.canShare?.({ files: [file] }); } catch {}
+    if (share) {
+      try { await navigator.share({ files: [file] }); }
+      catch (e) { if (e.name !== 'AbortError') throw e; }
+    } else await saveOrShare(file, file.name);
   },
 };
 
@@ -2510,6 +2534,11 @@ function FotoView(cant, grp, fotos, idx) {
   const nota = h('textarea', { id: 'f-nota', maxlength: 1000, placeholder: 'Descrizione della foto', readonly: READONLY || null });
   const noteStatus = h('p', { class: 'hint', 'aria-live': 'polite' });
   const driveLink = h('a', { class: 'btn small', target: '_blank', rel: 'noopener noreferrer', hidden: true }, icon('cloud'), 'Apri foto su Drive');
+  let exportSeq = 0, exportBundle = null;
+  const exportStatus = h('p', { class: 'hint', 'aria-live': 'polite' });
+  const exportBtn = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: () => {
+    if (exportBundle) PhotoExport.save(exportBundle).catch(e => toast('Foto non salvata: ' + e.message, 'err'));
+  } }, icon('download'), 'Preparo la foto…');
   let noteCheckSeq = 0, verifiedKey = '';
   const saveN = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: async () => {
     const current = f; saveN.disabled = true; verifiedKey = '';
@@ -2530,7 +2559,26 @@ function FotoView(cant, grp, fotos, idx) {
   const titleEl = h('h1', { class: 'bar-title' });
   const bar = AppBar({ title: '', sub: grp.data.titolo, actions: READONLY ? [] : [iconBtn('trash', 'Elimina foto', del)] });
   bar.querySelector('.bar-title').replaceWith(titleEl);
-  const el = h('div', null, bar, h('main', { class: 'main gut no-bar' }, h('div', { class: 'pager' }, prev, pos, next), wrap, field('Nota', nota), h('div', { class: 'btn-row' }, READONLY ? null : saveN, MODE === 'drive' ? verifyN : null), noteStatus, MODE === 'drive' ? driveLink : null, info, planBox));
+  const el = h('div', null, bar, h('main', { class: 'main gut no-bar' }, h('div', { class: 'pager' }, prev, pos, next), wrap,
+    h('div', { class: 'btn-row' }, exportBtn), exportStatus,
+    field('Nota', nota), h('div', { class: 'btn-row' }, READONLY ? null : saveN, MODE === 'drive' ? verifyN : null), noteStatus, MODE === 'drive' ? driveLink : null, info, planBox));
+  async function prepareExport(current) {
+    const seq = ++exportSeq; exportBundle = null; exportBtn.disabled = true;
+    exportBtn.replaceChildren(icon('download'), 'Preparo la foto…'); exportStatus.textContent = '';
+    try {
+      const filename = `${slug(grp.data.titolo)}_${String(current.n).padStart(3, '0')}_${String(current.data.photoUid || current.id).slice(-8)}.jpg`;
+      const bundle = await PhotoExport.prepare(current, filename);
+      if (seq !== exportSeq || current !== f) return;
+      exportBundle = bundle; exportBtn.disabled = false;
+      exportBtn.replaceChildren(icon('download'), bundle.original ? 'Salva originale ad alta qualità' : 'Salva copia Drive');
+      const mb = (bundle.file.size / 1000000).toLocaleString('it-IT', { maximumFractionDigits: 2 });
+      exportStatus.textContent = bundle.original ? `Originale locale · ${mb} MB. Il salvataggio non applica altre compressioni.` :
+        `Copia disponibile · ${mb} MB. Su questo dispositivo manca l’originale: la copia Drive può essere compressa. Per l’alta qualità usa il telefono che ha scattato.`;
+    } catch (e) {
+      if (seq !== exportSeq || current !== f) return;
+      exportBtn.replaceChildren(icon('download'), 'Foto non disponibile'); exportStatus.textContent = 'Download non disponibile: ' + e.message;
+    }
+  }
   async function refreshNoteStatus(force = false) {
     if (nota.value.trim() !== String(f.data.nota ?? '')) {
       noteStatus.textContent = 'Nota modificata ma non ancora salvata. Premi «Salva nota e sincronizza».';
@@ -2556,6 +2604,7 @@ function FotoView(cant, grp, fotos, idx) {
     img.removeAttribute('src'); img.alt = `Foto ${f.n}`;
     Store.fullURL(f).then(u => { if (fotos[idx] === f) img.src = u; }).catch(() => { wrap.replaceChildren(h('div', { class: 'plan-msg', style: 'position:static;color:#9aa6b2' }, 'Foto non disponibile senza rete')); });
     if (!wrap.contains(img)) wrap.replaceChildren(img);
+    prepareExport(f);
     nota.value = f.data.nota || ''; saveN.disabled = true;
     const p = piante.find(x => Store.same(x.id, f.data.pianta));
     info.replaceChildren(h('dt', null, 'Scattata'), h('dd', { class: 'mono' }, fmtDateTime(f.data.taken)), h('dt', null, 'Autore'), h('dd', null, f.data.autore || '—'),
@@ -2590,7 +2639,7 @@ function FotoView(cant, grp, fotos, idx) {
     await Store.remove(f); toast('Foto eliminata'); Nav.back();
   }
   let loaded = false;
-  return { el, busyAuth: true, onShow: async () => { if (!loaded) { loaded = true; piante = (await Store.cachedList('pianta', cant.id)) || []; render(); } else await refreshNoteStatus(true); }, onStore: () => refreshNoteStatus().catch(console.error), destroy: () => { noteCheckSeq++; pv?.destroy(); } };
+  return { el, busyAuth: true, onShow: async () => { if (!loaded) { loaded = true; piante = (await Store.cachedList('pianta', cant.id)) || []; render(); } else await refreshNoteStatus(true); }, onStore: () => refreshNoteStatus().catch(console.error), destroy: () => { noteCheckSeq++; exportSeq++; exportBundle = null; pv?.destroy(); } };
 }
 
 /* ---------- Impostazioni e coda ---------- */
@@ -3088,6 +3137,7 @@ boot().catch(e => { console.error(e); $('#app').replaceChildren(h('div', { class
 </script>
 </body>
 </html>
+
 
 
 
