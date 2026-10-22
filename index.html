@@ -298,7 +298,7 @@ const CONFIG = {
   CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
 };
 const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
-const APP_VERSION = '2.6 qualità originale e zoom fotocamera · 22/10/2026';
+const APP_VERSION = '2.8 navigazione telefono e gesto laterale · 22/10/2026';
 
 /* =====================================================================
    REGOLE PER GLI AGGIORNAMENTI (da rispettare in ogni modifica futura)
@@ -1612,8 +1612,9 @@ function toast(msg, kind) {
 }
 function modal({ title, body, actions, dismissable = true }) {
   return new Promise(res => {
-    let closed = false;
-    const close = v => { if (closed) return; closed = true; back.remove(); document.removeEventListener('keydown', onKey); res(v); };
+    let closed = false, navLayer = null;
+    const finish = v => { if (closed) return; closed = true; back.remove(); document.removeEventListener('keydown', onKey); res(v); };
+    const close = v => { if (!closed) Nav.closeLayer(navLayer, () => finish(v)); };
     const onKey = e => { if (e.key === 'Escape' && dismissable) close(null); };
     const back = h('div', { class: 'modal-back', onclick: e => { if (e.target === back && dismissable) close(null); } });
     const acts = h('div', { class: 'modal-actions' }, (actions || []).map(a => h('button', {
@@ -1625,6 +1626,7 @@ function modal({ title, body, actions, dismissable = true }) {
     }, a.icon ? icon(a.icon) : null, a.label)));
     const box = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, h('h2', { class: 'modal-title' }, title), body || null, actions?.length ? acts : null);
     back.append(box); document.body.append(back); document.addEventListener('keydown', onKey);
+    navLayer = Nav.openLayer(() => finish(null), dismissable);
     const f = box.querySelector('input:not([type=checkbox]),textarea,select'); if (f) setTimeout(() => f.focus(), 60);
     back._close = close;
   });
@@ -1678,14 +1680,137 @@ const paintChips = () => document.querySelectorAll('.sync').forEach(paintChip);
 
 /* ---------- navigazione ---------- */
 const Nav = {
-  stack: [],
+  stack: [], entries: [], waitingLayers: [], index: 0, session: '', pending: false, queuedTarget: null, initialized: false,
   top() { return this.stack[this.stack.length - 1]; },
-  push(f) { const cur = this.top(); if (cur) cur.scrollY = window.scrollY; this.stack.push(f()); this.show(); },
-  back() { const v = this.stack.pop(); v?.destroy?.(); if (!this.stack.length) this.stack.push(HomeView()); this.show(); },
-  reset(f) { while (this.stack.length) this.stack.pop().destroy?.(); this.push(f); },
+  marker() { return { fcNav: this.session, index: this.index }; },
+  owns(state = history.state) { return state?.fcNav === this.session && state.index === this.index; },
+  write(replace = false) {
+    try { history[replace ? 'replaceState' : 'pushState'](this.marker(), '', location.pathname + location.search); } catch {}
+  },
+  init() {
+    if (this.initialized) return;
+    this.initialized = true;
+    window.addEventListener('popstate', e => this.onPop(e.state));
+    this.initSwipe();
+  },
+  push(f, show = true) {
+    if (this.pending) return;
+    if (!this.stack.length) return this.reset(f);
+    const view = f(), cur = this.top(); if (cur) cur.scrollY = window.scrollY;
+    this.entries.splice(this.index + 1);
+    this.entries.push({ kind: 'view', factory: f, view }); this.index++;
+    this.stack.push(view); this.write(); if (show) this.show();
+  },
+  back() {
+    if (this.pending || this.index <= 0) return;
+    const current = this.entries[this.index];
+    if (current.kind === 'layer' && !current.dismissable && !current.closing) return;
+    this.go(this.index - 1);
+  },
+  go(target) {
+    if (this.pending || target === this.index || target < 0 || target >= this.entries.length) return;
+    if (this.owns()) {
+      this.pending = true;
+      try { history.go(target - this.index); return; } catch { this.pending = false; }
+    }
+    this.apply(target); this.write(true);
+  },
+  reset(f) {
+    this.init();
+    for (const entry of [...this.entries, ...this.waitingLayers]) if (entry.kind === 'layer' && entry.active) { entry.active = false; entry.dismiss(); }
+    while (this.stack.length) this.stack.pop().destroy?.();
+    this.session = Date.now().toString(36) + Math.random().toString(36).slice(2);
+    const view = f(); this.stack = [view]; this.entries = [{ kind: 'view', factory: f, view }];
+    this.index = 0; this.pending = false; this.queuedTarget = null; this.waitingLayers = []; this.write(true); this.show();
+  },
+  openLayer(dismiss, dismissable = true) {
+    if (!this.stack.length) return null;
+    const entry = { kind: 'layer', dismiss, dismissable, active: true };
+    if (this.pending) { entry.waiting = true; this.waitingLayers.push(entry); return entry; }
+    this.addLayer(entry); return entry;
+  },
+  addLayer(entry) {
+    this.entries.splice(this.index + 1); this.entries.push(entry); this.index++;
+    this.write();
+  },
+  closeLayer(entry, finish) {
+    if (!entry?.active) { finish(); return; }
+    if (entry.waiting) { entry.active = false; finish(); return; }
+    entry.dismiss = finish; entry.closing = true;
+    const position = this.entries.indexOf(entry);
+    if (position > 0) {
+      if (this.pending) this.queuedTarget = Math.min(this.queuedTarget ?? position - 1, position - 1);
+      else this.go(position - 1);
+    } else { entry.active = false; finish(); }
+  },
+  onPop(state) {
+    this.pending = false;
+    if (state?.fcNav !== this.session || !Number.isInteger(state.index) || !this.entries[state.index]) { this.write(true); return; }
+    const target = state.index;
+    // I dialoghi di attesa non si possono chiudere mentre è in corso un salvataggio.
+    if (target < this.index && this.entries.slice(target + 1, this.index + 1).some(e => e.kind === 'layer' && e.active && !e.dismissable && !e.closing)) {
+      this.pending = true; history.go(this.index - target); return;
+    }
+    // Avanti non riapre un dialogo già chiuso né una vecchia anteprima della fotocamera.
+    if (this.entries[target].kind === 'layer' && !this.entries[target].active) {
+      const direction = target > this.index ? 1 : -1;
+      let next = target;
+      while (next >= 0 && next < this.entries.length && this.entries[next].kind === 'layer') next += direction;
+      if (next >= this.entries.length) { next = target; while (next > 0 && this.entries[next].kind === 'layer') next--; }
+      this.pending = true; history.go(next - target); return;
+    }
+    this.apply(target);
+    const queued = this.queuedTarget; this.queuedTarget = null;
+    if (queued != null && queued < this.index) this.go(queued);
+    if (!this.pending) {
+      const waiting = this.waitingLayers.splice(0);
+      for (const entry of waiting) if (entry.active) { entry.waiting = false; this.addLayer(entry); }
+    }
+  },
+  apply(target) {
+    const current = this.top(); if (current) current.scrollY = window.scrollY;
+    if (target < this.index) {
+      for (let i = this.index; i > target; i--) {
+        const entry = this.entries[i];
+        if (entry.kind === 'layer') { if (entry.active) { entry.active = false; entry.dismiss(); } }
+        else { const view = this.stack.pop(); view?.destroy?.(); entry.view = null; }
+      }
+    } else {
+      for (let i = this.index + 1; i <= target; i++) {
+        const entry = this.entries[i];
+        if (entry.kind === 'view') { entry.view = entry.factory(); this.stack.push(entry.view); }
+      }
+    }
+    this.index = target; this.show();
+  },
   route() { for (let i = this.stack.length - 1; i >= 0; i--) if (this.stack[i].route) return this.stack[i].route; return null; },
-  pushMany(fs) { const cur = this.top(); if (cur) cur.scrollY = window.scrollY; for (const f of fs) this.stack.push(f()); this.show(); },
+  pushMany(fs) { for (const f of fs) this.push(f, false); this.show(); },
   show() { const v = this.top(); $('#app').replaceChildren(v.el); paintChips(); window.scrollTo(0, v.scrollY || 0); v.onShow?.(); },
+  initSwipe() {
+    let start = null;
+    const clear = () => { start = null; };
+    document.addEventListener('touchstart', e => {
+      clear();
+      if (e.touches.length !== 1 || this.index <= 0 || this.pending) return;
+      const t = e.touches[0];
+      if (t.clientX > 28 || e.target.closest?.('.plan, .fc-camera-panel, input, textarea, select, button, a, [contenteditable]')) return;
+      start = { x: t.clientX, y: t.clientY, at: Date.now(), index: this.index, session: this.session };
+    }, { passive: true });
+    document.addEventListener('touchmove', e => {
+      if (!start) return;
+      if (e.touches.length !== 1) return clear();
+      const t = e.touches[0], dx = t.clientX - start.x, dy = Math.abs(t.clientY - start.y);
+      if (dy > 35 && dy > dx * 0.6 || dx < -10) return clear();
+      if (dx > 12 && dx > dy * 1.8 && e.cancelable) e.preventDefault();
+    }, { passive: false });
+    document.addEventListener('touchend', e => {
+      const gesture = start; clear();
+      if (!gesture || e.touches.length || !e.changedTouches.length || gesture.index !== this.index || gesture.session !== this.session || this.pending) return;
+      const t = e.changedTouches[0], dx = t.clientX - gesture.x, dy = Math.abs(t.clientY - gesture.y);
+      if (dx >= 80 && dx > dy * 1.8 && Date.now() - gesture.at < 1200) this.back();
+    }, { passive: true });
+    document.addEventListener('touchcancel', clear, { passive: true });
+  },
 };
 function AppBar({ title, sub, back = true, actions = [], chip = true, compact = back }) {
   return h('header', { class: 'bar' }, h('div', { class: 'bar-in gut' },
@@ -2196,7 +2321,9 @@ function ScattoView(cant, grp) {
     let track = stream.getVideoTracks()[0], digitalZoom = 1, zoomPending = false, capturing = false, closed = false, zoomQueue = Promise.resolve();
     const overlay = h('div', { class: 'fc-camera-overlay' });
     const count = h('span', null, point ? 'Punto e direzione mantenuti' : 'Scatto senza punto sulla planimetria');
-    const stop = () => { closed = true; stream.getTracks().forEach(t => t.stop()); overlay.remove(); liveCameraStop = null; };
+    let navLayer = null;
+    const finishCamera = () => { if (closed) return; closed = true; stream.getTracks().forEach(t => t.stop()); overlay.remove(); liveCameraStop = null; };
+    const stop = () => { if (!closed) Nav.closeLayer(navLayer, finishCamera); };
     liveCameraStop?.();
     liveCameraStop = stop;
     const shutter = h('button', { class: 'btn primary big', type: 'button' }, icon('camera'), 'Scatta');
@@ -2276,6 +2403,7 @@ function ScattoView(cant, grp) {
       lens, h('div', { class: 'form' }, zoomLabel, slider, presets, zoomInfo), shutter,
       h('button', { class: 'btn small', type: 'button', onclick: async () => { stop(); await take(true); } }, 'Usa fotocamera del telefono')));
     document.body.append(overlay);
+    navLayer = Nav.openLayer(finishCamera);
     video.play().catch(() => {});
   }
   let liveCameraStop = null;
@@ -2907,8 +3035,8 @@ async function restoreRoute() {
       }
     }
   } catch (e) { console.error(e); }
-  while (Nav.stack.length) Nav.stack.pop().destroy?.();
-  Nav.pushMany(views);
+  Nav.reset(views[0]);
+  Nav.pushMany(views.slice(1));
 }
 
 window.addEventListener('error', e => console.error(e.error || e.message));
@@ -2919,5 +3047,7 @@ boot().catch(e => { console.error(e); $('#app').replaceChildren(h('div', { class
 </script>
 </body>
 </html>
+
+
 
 
