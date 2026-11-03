@@ -1,0 +1,18 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync(__dirname+'/../index.html','utf8');
+const config=html.slice(html.indexOf('const CONFIG = {'),html.indexOf('const MODE ='));
+const access=html.slice(html.indexOf('const Access = {'),html.indexOf('/* ---------- utilità ---------- */'));
+const playa='1x8GdD1qM3QExkWT8Fnoh8sXv2oL91h1H';
+const ctx={MODE:'drive',TMP:'tmp~',Auth:{user:{email:'debiasi.ingegneri@gmail.com',readonly:true}},Store:{resolve:x=>x,isTemp:x=>x.startsWith('tmp~')}};
+vm.createContext(ctx);vm.runInContext(config+access+'\nthis.access=Access;this.config=CONFIG;',ctx);
+ctx.access.setSites([{id:playa},{id:'other-site'}]);
+assert.deepEqual(Array.from(ctx.access.assignedIds()),[playa]);
+assert.equal(ctx.access.canReadCantiere({id:playa}),true);
+assert.equal(ctx.access.canReadCantiere({id:'other-site'}),false);
+assert.equal(ctx.access.isCreator(),false);
+assert.equal(ctx.access.canCreateCantiere(),false);
+assert.equal(ctx.access.canReadCantiere({id:'tmp~new-site'}),false);
+assert.equal(ctx.access.canWriteCantiere({id:playa,canAddChildren:true}),true);
+assert.equal(ctx.access.canWriteCantiere({id:'other-site',canAddChildren:true}),false);
+assert.equal(ctx.config.CANTIERE_CREATORS.includes('debiasi.ingegneri@gmail.com'),false);
+console.log('PASS: 9 verifiche configurazione reale impresa: solo Playa, gruppi consentiti con Drive Editor, nessuna creazione cantieri.');
