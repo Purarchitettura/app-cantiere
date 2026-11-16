@@ -299,7 +299,7 @@ const CONFIG = {
   CONTATTI_DEFAULT: 'geometrailariocorro@gmail.com · PEC ilariocorro@geopec.it · tel. 3475648284',
 };
 const MODE = CONFIG.CLIENT_ID && CONFIG.ROOT_FOLDER_ID ? 'drive' : 'demo';
-const APP_VERSION = '2.12 accesso impresa Playa · 03/11/2026';
+const APP_VERSION = '2.13 rapporto e legenda punti · 16/11/2026';
 
 /* =====================================================================
    REGOLE PER GLI AGGIORNAMENTI (da rispettare in ogni modifica futura)
@@ -1357,37 +1357,24 @@ class PDFDoc {
   }
 }
 
-/* ---------- disegno dei punti sulla planimetria (per PDF) ---------- */
+/* ---------- punti e legenda della planimetria nei rapporti ---------- */
+function reportPoints(fotos, piantaId) {
+  return groupPoints(fotos, piantaId).map((p, i) => ({ ...p, pointLabel: `P${i + 1}` }));
+}
+function reportPointLegend(p) { return `${p.pointLabel} - Foto n. ${p.nums.join(', ')}`; }
 function drawPinsCanvas(ctx, W, H, points, unit) {
-  const ACC = '#1f4f8f', SIG = '#f2b705';
+  // Un solo punto per posizione, senza frecce né numeri delle foto sovrapposti.
   for (const p of points) {
-    const cx = p.x * W, cy = p.y * H;
-    for (const d of p.dirs) {
-      const a = d.ang * Math.PI / 180, L = 46 * unit;
-      const ex = cx + Math.sin(a) * L, ey = cy - Math.cos(a) * L;
-      ctx.strokeStyle = ACC; ctx.fillStyle = ACC; ctx.lineWidth = 4 * unit; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
-      const ha = 11 * unit; ctx.beginPath();
-      ctx.moveTo(ex + Math.sin(a) * ha * 0.6, ey - Math.cos(a) * ha * 0.6);
-      ctx.lineTo(ex + Math.sin(a + 2.5) * ha, ey - Math.cos(a + 2.5) * ha);
-      ctx.lineTo(ex + Math.sin(a - 2.5) * ha, ey - Math.cos(a - 2.5) * ha);
-      ctx.closePath(); ctx.fill();
-      if (p.dirs.length > 1) {
-        ctx.font = `600 ${13 * unit}px Helvetica, Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        const tx = cx + Math.sin(a) * (L + 18 * unit), ty = cy - Math.cos(a) * (L + 18 * unit);
-        const tw = ctx.measureText(d.label).width + 8 * unit;
-        ctx.fillStyle = '#ffffff'; ctx.fillRect(tx - tw / 2, ty - 9 * unit, tw, 18 * unit);
-        ctx.fillStyle = ACC; ctx.fillText(d.label, tx, ty);
-      }
-    }
-  }
-  for (const p of points) {
-    const cx = p.x * W, cy = p.y * H;
-    ctx.font = `700 ${15 * unit}px Helvetica, Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const tw = Math.max(28 * unit, ctx.measureText(p.label).width + 16 * unit), th = 28 * unit;
-    ctx.fillStyle = SIG; ctx.strokeStyle = '#1f1a08'; ctx.lineWidth = 2.2 * unit;
-    roundRect(ctx, cx - tw / 2, cy - th / 2, tw, th, th / 2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#1f1a08'; ctx.fillText(p.label, cx, cy + 0.5 * unit);
+    const cx = p.x * W, cy = p.y * H, r = 11 * unit;
+    ctx.fillStyle = '#f2b705'; ctx.strokeStyle = '#1f1a08'; ctx.lineWidth = 2 * unit;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.font = `700 ${15 * unit}px Helvetica, Arial, sans-serif`;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(p.pointLabel).width + 8 * unit, th = 22 * unit;
+    const tx = Math.max(0, Math.min(W - tw, cx + r + 3 * unit));
+    const ty = Math.max(th / 2, Math.min(H - th / 2, cy));
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(tx, ty - th / 2, tw, th);
+    ctx.fillStyle = '#16202a'; ctx.fillText(p.pointLabel, tx + 4 * unit, ty);
   }
 }
 function roundRect(ctx, x, y, w, hh, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + hh, r); ctx.arcTo(x + w, y + hh, x, y + hh, r); ctx.arcTo(x, y + hh, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
@@ -1430,7 +1417,7 @@ async function buildReport({ cant, grp, fotos, piante, perPage, withPlans, redat
   // Planimetrie con i punti di ripresa
   if (withPlans) {
     for (const p of piante) {
-      const pts = groupPoints(fotos, p.id); if (!pts.length) continue;
+      const pts = reportPoints(fotos, p.id); if (!pts.length) continue;
       onProgress?.(`Planimetria ${p.data.label || ''}`);
       const im = await decodeImage(await Store.getBlob(p)); const { w: iw, h: ih } = imgSize(im);
       const s = Math.min(1, 2400 / Math.max(iw, ih)); const cw = Math.round(iw * s), ch = Math.round(ih * s);
@@ -1444,11 +1431,25 @@ async function buildReport({ cant, grp, fotos, piante, perPage, withPlans, redat
       y += 9;
       pdf.text('PLANIMETRIA', M, y, { size: 7.5, bold: true, color: MUTED });
       pdf.text(p.data.label || '', M + 24, y, { size: 10, bold: true, color: INK, maxW: CW - 70 });
-      pdf.text('Numeri = foto scattate in quel punto; freccia = direzione', W - M, y, { size: 7, color: MUTED, align: 'right' });
+      
       y += 3;
       const sc = Math.min(CW / cw, (BOT - y) / ch); const dw = cw * sc, dh = ch * sc;
       pdf.image(jpg, M + (CW - dw) / 2, y, dw, dh); pdf.rect(M + (CW - dw) / 2, y, dw, dh, { stroke: LINE, w: 0.2 });
-      y += dh;
+      y += dh + 7;
+      const legendHeading = () => {
+        pdf.text(`LEGENDA PUNTI - ${p.data.label || 'Planimetria'}`, M, y, { size: 8, bold: true, color: MUTED, maxW: CW });
+        y += 5;
+      };
+      if (y + 10 > BOT) y = newPage() + 4;
+      legendHeading();
+      for (const point of pts) {
+        const lines = pdf.wrap(reportPointLegend(point), CW, 9, false);
+        for (const ln of lines) {
+          if (y + 5 > BOT) { y = newPage() + 4; legendHeading(); }
+          pdf.text(ln, M, y, { size: 9, color: INK }); y += 4.5;
+        }
+        y += 2;
+      }
     }
   }
 
@@ -1459,11 +1460,11 @@ async function buildReport({ cant, grp, fotos, piante, perPage, withPlans, redat
   const cellW = (CW - (cols - 1) * gap) / cols, cellH = (BOT - TOP - 2 - (rowsN - 1) * gap) / rowsN;
   const boxH = cellH - capH; const pxMax = perPage === 2 ? 1800 : 1200;
   const nameOf = id => { const p = piante.find(x => Store.same(x.id, id)); return p ? p.data.label : ''; };
-  let lastRow = -1, gy = TOP;
+  let gy = TOP;
   for (let i = 0; i < fotos.length; i++) {
     const f = fotos[i]; const slot = i % perPage;
     if (slot === 0) gy = newPage() + 2;
-    const col = slot % cols, row = Math.floor(slot / cols); lastRow = row;
+    const col = slot % cols, row = Math.floor(slot / cols);
     const x = M + col * (cellW + gap), yy = gy + row * (cellH + gap);
     onProgress?.(`Foto ${i + 1} di ${fotos.length}`, (i + 1) / fotos.length);
     try {
@@ -1482,23 +1483,13 @@ async function buildReport({ cant, grp, fotos, piante, perPage, withPlans, redat
     pdf.text(lbl, x + 4, cy, { size: 9.5, bold: true, color: INK });
     pdf.text(fmtDateTime(f.data.taken), x + cellW, cy, { size: 7.8, color: MUTED, align: 'right' });
     const where = f.data.pianta ? `Planimetria: ${nameOf(f.data.pianta)}` : 'Senza punto su planimetria';
-    cy += 4; pdf.text(where + (f.data.autore ? ` · ${f.data.autore}` : ''), x, cy, { size: 7.5, color: MUTED, maxW: cellW });
+    cy += 4; pdf.text(where, x, cy, { size: 7.5, color: MUTED, maxW: cellW });
     if (f.data.nota) {
       let lines = pdf.wrap(f.data.nota, cellW, 8.6, false);
       if (lines.length > maxLines) { lines = lines.slice(0, maxLines); lines[maxLines - 1] = lines[maxLines - 1].replace(/\s*\S*$/, '') + ' […]'; }
       for (const ln of lines) { cy += 3.9; pdf.text(ln, x, cy, { size: 8.6, color: INK }); }
     }
   }
-
-  // Firma
-  let sy;
-  if (fotos.length) { const used = gy + (lastRow + 1) * (cellH + gap); sy = (fotos.length % perPage === 0 || BOT - used < 34) ? newPage() + 4 : used; }
-  else sy = BOT - y < 40 ? newPage() + 4 : y + 6;
-  sy += 8;
-  pdf.text(`Data: ${fmtDay(todayISO())}`, M, sy + 6, { size: 9.5, color: INK });
-  pdf.text('Il tecnico', W - M - 35, sy, { size: 8, color: MUTED, align: 'center' });
-  pdf.text(redattore || '', W - M - 35, sy + 6, { size: 10, bold: true, color: INK, align: 'center' });
-  pdf.line(W - M - 70, sy + 20, W - M, sy + 20, { w: 0.3, color: INK });
 
   // Piè di pagina
   const n = pdf.pages.length;
@@ -1595,7 +1586,7 @@ async function buildDocx({ cant, grp, fotos, piante, perPage, withPlans, redatto
   // Planimetrie con i punti di ripresa
   if (withPlans) {
     for (const p of piante) {
-      const pts = groupPoints(fotos, p.id); if (!pts.length) continue;
+      const pts = reportPoints(fotos, p.id); if (!pts.length) continue;
       onProgress?.(`Planimetria ${p.data.label || ''}`);
       const im = await decodeImage(await Store.getBlob(p)); const { w: iw, h: ih } = imgSize(im);
       const s = Math.min(1, 2400 / Math.max(iw, ih)); const cw = Math.round(iw * s), ch = Math.round(ih * s);
@@ -1605,8 +1596,9 @@ async function buildDocx({ cant, grp, fotos, piante, perPage, withPlans, redatto
       const img = addImage(new Uint8Array(await (await canvasToBlob(c, 'image/jpeg', 0.88)).arrayBuffer()), cw, ch);
       const [w, h] = fit(cw, ch, CW, 200);
       body.push(para(run('PLANIMETRIA  ', { bold: true, size: 15, color: MUTED, spacing: 10 }) + run(p.data.label || '', { bold: true, size: 20, color: INK }), { before: 280, after: 40, keepNext: true }));
-      body.push(para(run('Numeri = foto scattate in quel punto; freccia = direzione di ripresa', { size: 15, color: MUTED }), { after: 80, keepNext: true }));
       body.push(para(imageRun(img, w, h), { align: 'center', after: 120 }));
+      body.push(para(run(`LEGENDA PUNTI - ${p.data.label || 'Planimetria'}`, { bold: true, size: 16, color: MUTED }), { after: 80, keepNext: true }));
+      for (const point of pts) body.push(para(run(reportPointLegend(point), { size: 18, color: INK }), { after: 60 }));
     }
   }
 
@@ -1630,7 +1622,7 @@ async function buildDocx({ cant, grp, fotos, piante, perPage, withPlans, redatto
     const where = f.data.pianta ? `Planimetria: ${nameOf(f.data.pianta)}` : 'Senza punto su planimetria';
     cells.push(pic +
       para(run(`Foto n. ${f.reference || f.n}`, { bold: true, size: 19, color: INK }) + tab + run(fmtDateTime(f.data.taken), { size: 16, color: MUTED }), { tabs: [{ val: 'right', pos: TW(cellW) - 60 }], after: 20 }) +
-      para(run(where + (f.data.autore ? ` · ${f.data.autore}` : ''), { size: 15, color: MUTED }), { after: 30 }) +
+      para(run(where, { size: 15, color: MUTED }), { after: 30 }) +
       (f.data.nota ? para(run(f.data.nota, { size: 18, color: INK }), { after: 40, line: 264 }) : para('', { after: 0 })));
   }
   if (cells.length) {
@@ -1648,12 +1640,6 @@ async function buildDocx({ cant, grp, fotos, piante, perPage, withPlans, redatto
     }
     body.push(`<w:tbl><w:tblPr><w:tblW w:w="${TW(CW)}" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="0" w:type="dxa"/><w:bottom w:w="${TW(5)}" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar></w:tblPr>${grid}${trs}</w:tbl>`);
   }
-
-  // Firma
-  body.push(para('', { before: 360, after: 0 }));
-  body.push(para(run(`Data: ${fmtDay(todayISO())}`, { size: 19, color: INK }) + tab + run('Il tecnico', { size: 16, color: MUTED }), { tabs: [{ val: 'center', pos: TW(CW - 35) }], keepNext: true, after: 60 }));
-  body.push(para(tab + run(redattore || '', { bold: true, size: 20, color: INK }), { tabs: [{ val: 'center', pos: TW(CW - 35) }], keepNext: true, after: 600 }));
-  body.push(para(tab + run('______________________________', { color: INK }), { tabs: [{ val: 'center', pos: TW(CW - 35) }], after: 0 }));
 
   const sect = `<w:sectPr><w:headerReference w:type="default" r:id="rIdHdr"/><w:footerReference w:type="default" r:id="rIdFtr"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="${TW(26)}" w:right="${TW(14)}" w:bottom="${TW(18)}" w:left="${TW(14)}" w:header="${TW(9)}" w:footer="${TW(8)}" w:gutter="0"/></w:sectPr>`;
   const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
@@ -2751,7 +2737,7 @@ function SettingsView() {
     h('main', { class: 'main gut no-bar' },
       h('div', { class: 'section-label' }, 'Caricamenti'), queue,
       h('div', { class: 'section-label' }, 'Foto e rapporti'),
-      h('div', { class: 'card form', style: 'padding:14px' }, field('Firma / autore delle foto', firma, 'Compare sulle foto e nel campo «Redatto da» del rapporto'),
+      h('div', { class: 'card form', style: 'padding:14px' }, field('Firma / autore delle foto', firma, 'Identifica l’autore nei dettagli delle foto e precompila «Redatto da» nel rapporto'),
         h('div', null, h('strong', null, 'Foto su questo dispositivo: alta qualità'), h('p', { class: 'modal-text' }, 'Risoluzione originale ricevuta, JPEG 100%. Visualizzazione e salvataggio sul telefono usano l’originale quando presente.')),
         h('div', null, h('strong', null, 'Copia Google Drive: massimo 1,5 MB'), h('p', { class: 'modal-text' }, 'Compressione automatica della sola copia da caricare. Su altri dispositivi si scarica questa copia; gli originali restano sul telefono che ha scattato.'))),
       MODE === 'drive' && Access.isCreator() ? h('div', { class: 'card', style: 'padding:14px;display:grid;gap:10px' },

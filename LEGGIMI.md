@@ -4,6 +4,12 @@ App web installabile su iPhone e Android: si apre dal browser e si aggiunge alla
 
 ## Cosa fa
 
+### Rapporto PDF e Word (versione 2.13)
+
+Il rapporto non contiene più la firma del tecnico e la data conclusiva. Le didascalie delle foto conservano numero, data dello scatto, planimetria e nota, senza il nome dell'autore dello scatto. Rimangono i dati iniziali del rapporto, compreso «Redatto da».
+
+Sulla planimetria del rapporto ogni posizione raggruppata ha un solo punto, identificato da P1, P2, ecc., senza frecce. La legenda sotto la planimetria elenca tutti i riferimenti delle foto associate a ciascun punto, anche con direzioni diverse e con suffissi di disambiguazione dei numeri duplicati. I punti ripartono da P1 per ciascuna planimetria. La vista interattiva dell'app mantiene i riferimenti e le direzioni di ripresa.
+
 ### Salvataggio di tutte le foto del gruppo (versione 2.11)
 
 Il comando **Altre azioni → Salva le foto sul telefono** è disponibile anche nei browser che non supportano la condivisione di più immagini. L'app prepara i file ad alta qualità presenti sul dispositivo, altrimenti usa la copia Drive, senza ricomprimere le foto.
