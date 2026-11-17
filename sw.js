@@ -1,12 +1,13 @@
 // Foto Cantiere — service worker: l'app si apre anche senza rete.
-const VERSION = 'fc-v16-report-legend'; // cache del codice: aggiornarla non tocca i dati (IndexedDB e Drive)
+// Il sito ospita anche altre app (PuraStrumenti, Foto Perizie, Scheda sopralluogo): si cancellano solo le copie di Foto Cantiere (prefisso fc-).
+const VERSION = 'fc-v17-cache-propria'; // cache del codice: aggiornarla non tocca i dati (IndexedDB e Drive)
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith('fc-') && k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', e => {
   const req = e.request;
